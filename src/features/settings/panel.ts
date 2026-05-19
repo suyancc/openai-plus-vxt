@@ -53,8 +53,8 @@ export function createSettingsDialog(): SettingsDialogHandle {
   const tgGroupButton = document.createElement('button');
   tgGroupButton.className = 'opx-external-link-button';
   tgGroupButton.type = 'button';
-  tgGroupButton.textContent = 'TG 群组：t.me/fuck_open';
   tgGroupButton.title = '打开 TG 群组';
+  tgGroupButton.append(createTelegramIcon(), document.createTextNode('TG 群组：t.me/fuck_open'));
 
   const hint = document.createElement('div');
   hint.className = 'opx-hint';
@@ -123,6 +123,19 @@ function createSettingItem(checkbox: HTMLInputElement, title: string, descriptio
 
   item.append(label, descriptionElement);
   return item;
+}
+
+function createTelegramIcon(): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.classList.add('opx-telegram-icon');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('fill', 'currentColor');
+  path.setAttribute('d', 'M21.9 4.3 18.7 19c-.2 1-.8 1.2-1.6.8l-4.6-3.4-2.2 2.1c-.2.2-.4.4-.9.4l.3-4.7 8.5-7.7c.4-.3-.1-.5-.6-.2L7.1 12.9 2.6 11.5c-1-.3-1-1 0-1.4L20.2 3.3c.8-.3 1.5.2 1.7 1Z');
+  svg.append(path);
+  return svg;
 }
 
 function createIconButton(label: string, title: string): HTMLButtonElement {

@@ -2,7 +2,7 @@ export type CheckoutPlanName = 'chatgptteamplan' | 'chatgptplusplan';
 
 export type CheckoutUiMode = 'custom' | 'hosted';
 
-export type CheckoutRegion = 'US' | 'ID' | 'DE';
+export type CheckoutRegion = 'US' | 'ID' | 'DE' | 'JP';
 
 export interface CheckoutOptions {
   planName: CheckoutPlanName;

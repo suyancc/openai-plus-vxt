@@ -114,7 +114,7 @@ export async function saveSmsRelayState(patch: Partial<SmsRelayState>): Promise<
 }
 
 export function isFeatureTab(value: string): value is FeatureTab {
-  return value === 'register' || value === 'link' || value === 'address' || value === 'payment' || value === 'sms';
+  return value === 'register' || value === 'link' || value === 'address' || value === 'sms';
 }
 
 function normalizeAppState(value: unknown): AppState {

@@ -21,7 +21,7 @@ export function createSmsPanel(container: HTMLElement): FeaturePanelHandle {
 
   const input = document.createElement('textarea');
   input.className = 'opx-textarea opx-sms-input';
-  input.placeholder = '+14642649811----https://mail-api.yuecheng.shop/api/text-relay/xxx\n每行一个号码和 API 链接';
+  input.placeholder = '+14642649811----https://xxxx.com/xxx\n每行一个号码和 API 链接';
   input.autocomplete = 'off';
   input.spellcheck = false;
 
@@ -48,6 +48,7 @@ export function createSmsPanel(container: HTMLElement): FeaturePanelHandle {
   let pollTimer: number | null = null;
   let lastSavedInput = '';
   let inputSaveTimer: number | null = null;
+  let inputFocused = false;
 
   container.append(
     summary,
@@ -63,6 +64,13 @@ export function createSmsPanel(container: HTMLElement): FeaturePanelHandle {
   input.addEventListener('input', () => {
     scheduleInputSave();
     renderTargetsFromInput();
+  });
+  input.addEventListener('focus', () => {
+    inputFocused = true;
+  });
+  input.addEventListener('blur', () => {
+    inputFocused = false;
+    void persistInputNow();
   });
 
   saveButton.addEventListener('click', async () => {
@@ -87,7 +95,7 @@ export function createSmsPanel(container: HTMLElement): FeaturePanelHandle {
   const update = async () => {
     const state = await loadSmsRelayState();
     currentState = state;
-    if (document.activeElement !== input && input.value !== state.rawInput) {
+    if (!inputFocused && input.value !== state.rawInput) {
       input.value = state.rawInput;
       lastSavedInput = state.rawInput;
       renderTargetsFromInput();
@@ -101,7 +109,7 @@ export function createSmsPanel(container: HTMLElement): FeaturePanelHandle {
     ensurePolling();
   };
 
-  void update().then(ensurePolling);
+  void update();
   return { update, onShow };
 
   function scheduleInputSave(): void {

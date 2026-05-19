@@ -2,6 +2,8 @@
 
 一个基于 [WXT](https://wxt.dev/) 的浏览器插件，用于辅助 ChatGPT 注册、Checkout 链接提取、随机地址资料生成，以及 OpenAI/PayPal 支付页资料自动填写。
 
+TG 群组：[https://t.me/fuck_open](https://t.me/fuck_open)
+
 ## 功能
 
 - 注册辅助
@@ -31,6 +33,7 @@
   - 右侧浮动面板，支持收起/展开。
   - 收起状态、当前 tab、输入内容和设置会保存在本地。
   - 设置页显示当前插件版本号，便于后续更新检查。
+  - 设置页提供 TG 群组入口：[https://t.me/fuck_open](https://t.me/fuck_open)。
 
 ## 开发环境
 
@@ -148,8 +151,8 @@ src/
     register/            注册辅助
     link-extractor/      Checkout 链接提取
     address-autofill/    地址资料和支付页自动填写
+    sms/                 接码链接轮询和验证码历史
     settings/            设置页和持久化设置
-    payment/             支付模块占位
 scripts/                 本地调试脚本
 wxt.config.ts            WXT 和扩展 manifest 配置
 ```

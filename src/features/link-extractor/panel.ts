@@ -6,6 +6,7 @@ import type { ChatGptSessionResponse, CheckoutLinkResponse, CheckoutOptions } fr
 const REGION_OPTIONS = [
   ['ID', '印尼 / IDR'],
   ['DE', '德国 / EUR'],
+  ['JP', '日本 / JPY'],
   ['US', '美国 / USD'],
 ];
 

@@ -28,5 +28,6 @@ export interface SmsRelayFetchResponse {
   message: string;
   data?: string;
   status?: number;
+  text?: string;
   raw?: unknown;
 }

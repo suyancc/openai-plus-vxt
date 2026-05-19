@@ -86,7 +86,7 @@ export const PANEL_STYLES = `
 
 .opx-tabs {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
   margin-bottom: 0;
   padding: 3px;
@@ -414,6 +414,39 @@ export const PANEL_STYLES = `
   color: #94a3b8;
   font-size: 11px;
   line-height: 15px;
+}
+
+.opx-external-link-button {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 34px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(47, 209, 124, 0.34);
+  border-radius: 6px;
+  background: rgba(47, 209, 124, 0.1);
+  color: #bbf7d0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: left;
+}
+
+.opx-telegram-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+}
+
+.opx-external-link-button:hover {
+  border-color: rgba(47, 209, 124, 0.7);
+  background: rgba(47, 209, 124, 0.16);
+  color: #dcfce7;
 }
 
 .opx-check-row {

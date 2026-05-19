@@ -1,4 +1,4 @@
-import { extractSmsCode } from './parser';
+import { extractSmsPayload } from './parser';
 import type { SmsRelayFetchResponse, SmsRelayTarget } from './types';
 
 export type SmsPollResult =
@@ -42,13 +42,19 @@ export async function fetchSmsRelayCode(target: SmsRelayTarget): Promise<SmsPoll
     };
   }
 
-  const message = String(response.data || '').trim();
-  const code = extractSmsCode(message);
+  const extracted = extractSmsPayload({
+    raw: response.raw,
+    data: response.data,
+    text: response.text,
+    message: response.message,
+  });
+  const message = extracted.message;
+  const code = extracted.code;
   if (!code) {
     return {
       kind: 'empty',
       target,
-      message: message || response.message || '暂无短信',
+      message: message || response.data || response.message || '暂无短信',
     };
   }
 

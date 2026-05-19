@@ -16,6 +16,7 @@ const REGION_BILLING: Record<CheckoutRegion, { country: string; currency: string
   US: { country: 'US', currency: 'USD' },
   ID: { country: 'ID', currency: 'IDR' },
   DE: { country: 'DE', currency: 'EUR' },
+  JP: { country: 'JP', currency: 'JPY' },
 };
 
 export const DEFAULT_CHECKOUT_OPTIONS: CheckoutOptions = {
@@ -164,7 +165,9 @@ function normalizeUiMode(value: unknown): CheckoutUiMode {
 
 function normalizeRegion(value: unknown): CheckoutRegion {
   const region = String(value || DEFAULT_CHECKOUT_OPTIONS.region).trim().toUpperCase();
-  return region === 'ID' || region === 'DE' || region === 'US' ? region : DEFAULT_CHECKOUT_OPTIONS.region;
+  return region === 'ID' || region === 'DE' || region === 'JP' || region === 'US'
+    ? region
+    : DEFAULT_CHECKOUT_OPTIONS.region;
 }
 
 function normalizeSeatQuantity(value: unknown): number {
