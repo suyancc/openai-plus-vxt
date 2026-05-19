@@ -1,0 +1,22 @@
+{
+  "name": "openai-plus-vxt",
+  "description": "ChatGPT registration assistant extension",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt -b chrome",
+    "dev:manual": "wxt build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-debug-chrome.ps1",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "compile": "tsc --noEmit",
+    "postinstall": "wxt prepare"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "wxt": "^0.20.26"
+  }
+}
