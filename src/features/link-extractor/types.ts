@@ -52,6 +52,7 @@ export interface ChatGptSessionInfo {
   planType: string;
   accessToken: string;
   fetchedAt: number;
+  raw?: Record<string, unknown>;
 }
 
 export interface ChatGptSessionResponse {

@@ -49,104 +49,90 @@ export default defineBackground(() => {
 });
 
 async function fetchChatGptSessionForSender(sender: MessageSenderLike): Promise<ChatGptSessionResponse> {
+  // Always use background fetch directly — more reliable than scripting.executeScript
+  // which has serialization issues with async results in MV3
   const tabId = sender.tab?.id;
-  if (typeof tabId !== 'number') {
-    return fetchChatGptSession();
+
+  // First try background fetch (works when chatgpt.com cookies are accessible)
+  const bgResult = await fetchChatGptSession();
+  if (bgResult.ok && bgResult.session?.accessToken) {
+    return bgResult;
   }
 
-  try {
-    const results = await browser.scripting.executeScript({
-      target: { tabId },
-      func: fetchChatGptSessionInTab,
-    });
-    const response = results[0]?.result;
-    if (isChatGptSessionResponse(response)) {
-      return response;
+  // If background fetch didn't get a token, try injecting into the tab
+  if (typeof tabId === 'number') {
+    try {
+      const results = await browser.scripting.executeScript({
+        target: { tabId },
+        func: fetchChatGptSessionInTab,
+      });
+      const response = results[0]?.result;
+      if (isChatGptSessionResponse(response)) {
+        return response;
+      }
+    } catch (error) {
+      console.debug('[OPX] tab injection for session failed', error);
     }
-    return {
-      ok: false,
-      message: '当前标签页返回的 ChatGPT session 结果无效',
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      message: `无法在当前标签页读取 ChatGPT session：${String(error)}`,
-    };
   }
+
+  // Return the background result (may contain partial info or error message)
+  return bgResult;
 }
 
 async function fetchChatGptSessionInTab(): Promise<ChatGptSessionResponse> {
   const sessionUrl = 'https://chatgpt.com/api/auth/session';
-  let response: Response;
   try {
-    response = await fetch(sessionUrl, {
+    const response = await fetch(sessionUrl, {
       method: 'GET',
       headers: { Accept: 'application/json' },
       credentials: 'include',
       cache: 'no-store',
     });
-  } catch (error) {
-    return fail(`无法请求 ChatGPT session：${String(error)}`);
-  }
 
-  const text = await response.text();
-  const data = parseJson(text);
-  if (!response.ok) {
-    return fail(`ChatGPT session HTTP ${response.status}：${shorten(text || response.statusText)}`);
-  }
+    const text = await response.text();
 
-  if (!isRecord(data)) {
-    return fail('ChatGPT session 响应不是 JSON 对象');
-  }
+    if (!response.ok) {
+      const msg = text ? text.replace(/\s+/g, ' ').slice(0, 200) : response.statusText;
+      return { ok: false, message: `ChatGPT session HTTP ${response.status}：${msg}` };
+    }
 
-  const session = extractSessionInfo(data);
-  if (!session.accessToken) {
+    let data: unknown;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return { ok: false, message: 'ChatGPT session 响应不是有效 JSON' };
+    }
+
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return { ok: false, message: 'ChatGPT session 响应不是 JSON 对象' };
+    }
+
+    const record = data as Record<string, unknown>;
+    const user = (record.user && typeof record.user === 'object') ? record.user as Record<string, unknown> : {};
+    const account = (record.account && typeof record.account === 'object') ? record.account as Record<string, unknown> : {};
+
+    const email = typeof user.email === 'string' ? user.email.trim() : '';
+    const planType = typeof account.planType === 'string' ? account.planType.trim()
+      : typeof account.plan_type === 'string' ? (account.plan_type as string).trim() : '';
+    const accessToken = typeof record.accessToken === 'string' ? record.accessToken.trim() : '';
+
+    const session = { email, planType, accessToken, fetchedAt: Date.now(), raw: record };
+
+    if (!accessToken) {
+      return {
+        ok: false,
+        message: email ? '已读取账号信息，但 session 内没有 accessToken' : '未读取到登录 session',
+        session,
+      };
+    }
+
     return {
-      ok: false,
-      message: session.email ? '已读取账号信息，但 session 内没有 accessToken' : '未读取到登录 session',
+      ok: true,
+      message: '已从当前标签页读取 ChatGPT session',
       session,
     };
-  }
-
-  return {
-    ok: true,
-    message: '已从当前标签页读取 ChatGPT session',
-    session,
-  };
-
-  function extractSessionInfo(data: Record<string, unknown>) {
-    const user = isRecord(data.user) ? data.user : {};
-    const account = isRecord(data.account) ? data.account : {};
-    return {
-      email: stringValue(user.email),
-      planType: stringValue(account.planType) || stringValue(account.plan_type),
-      accessToken: stringValue(data.accessToken),
-      fetchedAt: Date.now(),
-    };
-  }
-
-  function parseJson(text: string): unknown {
-    try {
-      return JSON.parse(text);
-    } catch {
-      return {};
-    }
-  }
-
-  function stringValue(value: unknown): string {
-    return typeof value === 'string' ? value.trim() : '';
-  }
-
-  function fail(message: string) {
-    return { ok: false, message };
-  }
-
-  function shorten(text: string, limit = 400): string {
-    return String(text || '').replace(/\s+/g, ' ').slice(0, limit);
-  }
-
-  function isRecord(value: unknown): value is Record<string, unknown> {
-    return Boolean(value && typeof value === 'object');
+  } catch (error) {
+    return { ok: false, message: `无法请求 ChatGPT session：${String(error)}` };
   }
 }
 
