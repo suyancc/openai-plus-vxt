@@ -1,6 +1,7 @@
 import type { FeaturePanelHandle } from '../../app/types';
 import type { ConvertedAccount, ExportFormat } from './types';
 import { buildFileName, buildOutputDocument, parseAndConvert } from './converter';
+import { fetchChatGptSessionDirect } from '../link-extractor/session-direct';
 
 const FORMAT_OPTIONS: { value: ExportFormat; label: string }[] = [
   { value: 'cpa', label: 'CPA' },
@@ -106,14 +107,33 @@ export function createSessionExportPanel(container: HTMLElement): FeaturePanelHa
     setStatus('正在读取 session...', 'pending');
     fetchSessionBtn.disabled = true;
     try {
-      const response = await browser.runtime.sendMessage({ type: 'opx:fetch-chatgpt-session' });
+      // Try direct fetch first (works in fingerprint browsers)
+      let response: { ok: boolean; message?: string; session?: { accessToken?: string; email?: string; planType?: string; raw?: Record<string, unknown> } } | undefined;
+      if (location.hostname === 'chatgpt.com') {
+        response = await fetchChatGptSessionDirect();
+      }
+
+      // Fall back to background message
+      if (!response || (!response.ok && !response.session?.accessToken)) {
+        try {
+          const bgResponse = await browser.runtime.sendMessage({ type: 'opx:fetch-chatgpt-session' });
+          if (bgResponse?.ok && bgResponse?.session?.accessToken) {
+            response = bgResponse;
+          } else if (!response) {
+            response = bgResponse;
+          }
+        } catch {
+          // background unavailable, use direct result
+        }
+      }
+
       if (response?.ok && response?.session?.accessToken) {
-        const sessionJson = JSON.stringify(response.session.raw || buildSessionObject(response.session), null, 2);
+        const sessionJson = JSON.stringify(response.session.raw || buildSessionObject(response.session as { email?: string; planType?: string; accessToken?: string }), null, 2);
         input.value = sessionJson;
         doConvert();
         setStatus('已成功读取 Session。', 'ok');
       } else {
-        setStatus(response?.message || '读取 session 失败', 'error');
+        setStatus(response?.message || '读取 session 失败，请手动从 chatgpt.com/api/auth/session 复制粘贴', 'error');
       }
     } catch (error) {
       setStatus(`读取失败：${String(error)}`, 'error');

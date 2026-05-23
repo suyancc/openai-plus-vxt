@@ -1,6 +1,7 @@
 import { loadLinkExtractorState, saveLinkExtractorState } from '../../app/state';
 import type { FeaturePanelHandle } from '../../app/types';
 import { extractAccessToken, normalizeCheckoutOptions } from './checkout';
+import { fetchChatGptSessionDirect } from './session-direct';
 import type { ChatGptSessionResponse, CheckoutLinkResponse, CheckoutOptions } from './types';
 
 const REGION_OPTIONS = [
@@ -212,11 +213,27 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
     refreshSessionButton.disabled = true;
     setStatus(linkStatus, '正在读取 https://chatgpt.com/api/auth/session ...', 'pending');
     try {
-      const response: ChatGptSessionResponse = await browser.runtime.sendMessage({
-        type: 'opx:fetch-chatgpt-session',
-      });
+      // Try direct fetch first (works in fingerprint browsers where background can't access cookies)
+      let response: ChatGptSessionResponse | undefined;
+      if (location.hostname === 'chatgpt.com') {
+        response = await fetchChatGptSessionDirect();
+      }
+
+      // Fall back to background message if direct fetch failed or not on chatgpt.com
+      if (!response || (!response.ok && !response.session?.accessToken)) {
+        const bgResponse: ChatGptSessionResponse = await browser.runtime.sendMessage({
+          type: 'opx:fetch-chatgpt-session',
+        });
+        if (isChatGptSessionResponse(bgResponse)) {
+          // Use background result if it's better
+          if (!response || (bgResponse.ok && bgResponse.session?.accessToken)) {
+            response = bgResponse;
+          }
+        }
+      }
+
       sessionFetchedOnce = true;
-      if (!isChatGptSessionResponse(response)) {
+      if (!response || !isChatGptSessionResponse(response)) {
         setStatus(linkStatus, 'session 返回结果无效', 'error');
         return;
       }
