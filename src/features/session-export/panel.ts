@@ -1,4 +1,5 @@
 import type { FeaturePanelHandle } from '../../app/types';
+import { ExtensionInvalidatedError, sendMessageSafe } from '../../app/runtime-check';
 import type { ConvertedAccount, ExportFormat } from './types';
 import { buildFileName, buildOutputDocument, parseAndConvert } from './converter';
 import { fetchChatGptSessionDirect } from '../link-extractor/session-direct';
@@ -116,14 +117,18 @@ export function createSessionExportPanel(container: HTMLElement): FeaturePanelHa
       // Fall back to background message
       if (!response || (!response.ok && !response.session?.accessToken)) {
         try {
-          const bgResponse = await browser.runtime.sendMessage({ type: 'opx:fetch-chatgpt-session' });
+          const bgResponse = await sendMessageSafe<{ ok: boolean; message?: string; session?: { accessToken?: string; email?: string; planType?: string; raw?: Record<string, unknown> } }>({ type: 'opx:fetch-chatgpt-session' });
           if (bgResponse?.ok && bgResponse?.session?.accessToken) {
             response = bgResponse;
           } else if (!response) {
-            response = bgResponse;
+            response = bgResponse || undefined;
           }
-        } catch {
-          // background unavailable, use direct result
+        } catch (error) {
+          if (!response && error instanceof ExtensionInvalidatedError) {
+            setStatus('⚠️ 扩展已更新，请刷新页面后重试', 'error');
+            fetchSessionBtn.disabled = false;
+            return;
+          }
         }
       }
 

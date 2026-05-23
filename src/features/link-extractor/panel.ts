@@ -1,3 +1,4 @@
+import { ExtensionInvalidatedError, sendMessageSafe } from '../../app/runtime-check';
 import { loadLinkExtractorState, saveLinkExtractorState } from '../../app/state';
 import type { FeaturePanelHandle } from '../../app/types';
 import { extractAccessToken, normalizeCheckoutOptions } from './checkout';
@@ -142,13 +143,17 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
 
     let response: CheckoutLinkResponse;
     try {
-      response = await browser.runtime.sendMessage({
+      response = await sendMessageSafe<CheckoutLinkResponse>({
         type: 'opx:create-checkout-link',
         raw: token,
         options,
-      });
+      }) as CheckoutLinkResponse;
     } catch (error) {
-      setStatus(linkStatus, `生成失败：${String(error)}`, 'error');
+      if (error instanceof ExtensionInvalidatedError) {
+        setStatus(linkStatus, '⚠️ 扩展已更新，请刷新页面后重试', 'error');
+      } else {
+        setStatus(linkStatus, `生成失败：${String(error)}`, 'error');
+      }
       return;
     }
 
@@ -221,13 +226,20 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
 
       // Fall back to background message if direct fetch failed or not on chatgpt.com
       if (!response || (!response.ok && !response.session?.accessToken)) {
-        const bgResponse: ChatGptSessionResponse = await browser.runtime.sendMessage({
-          type: 'opx:fetch-chatgpt-session',
-        });
-        if (isChatGptSessionResponse(bgResponse)) {
-          // Use background result if it's better
-          if (!response || (bgResponse.ok && bgResponse.session?.accessToken)) {
-            response = bgResponse;
+        try {
+          const bgResponse = await sendMessageSafe<ChatGptSessionResponse>({
+            type: 'opx:fetch-chatgpt-session',
+          });
+          if (bgResponse && isChatGptSessionResponse(bgResponse)) {
+            if (!response || (bgResponse.ok && bgResponse.session?.accessToken)) {
+              response = bgResponse;
+            }
+          }
+        } catch (error) {
+          // If context is invalidated but we have a direct result, use it
+          if (!response && error instanceof ExtensionInvalidatedError) {
+            setStatus(linkStatus, '⚠️ 扩展已更新，请刷新页面后重试', 'error');
+            return;
           }
         }
       }
