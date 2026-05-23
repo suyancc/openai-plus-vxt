@@ -27,24 +27,39 @@ const ASSISTANT_URL_PREFIXES = [
 export default defineBackground(() => {
   installAssistantInjector();
 
-  browser.runtime.onMessage.addListener((message: unknown, sender) => {
+  browser.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
     if (!isOutlookOtpMessage(message)) {
       if (isCheckoutLinkMessage(message)) {
-        return createCheckoutLink(message.raw, message.options);
+        createCheckoutLink(message.raw, message.options).then(sendResponse).catch((e) => {
+          sendResponse({ ok: false, message: String(e) });
+        });
+        return true; // keep message channel open for async response
       }
       if (isChatGptSessionMessage(message)) {
-        return fetchChatGptSessionForSender(sender);
+        fetchChatGptSessionForSender(sender).then(sendResponse).catch((e) => {
+          sendResponse({ ok: false, message: String(e) });
+        });
+        return true;
       }
       if (isRandomAddressMessage(message)) {
-        return fetchRandomAddress(message.countryCode, message.city);
+        fetchRandomAddress(message.countryCode, message.city).then(sendResponse).catch((e) => {
+          sendResponse({ ok: false, message: String(e) });
+        });
+        return true;
       }
       if (isSmsRelayFetchMessage(message)) {
-        return fetchSmsRelay(message.url);
+        fetchSmsRelay(message.url).then(sendResponse).catch((e) => {
+          sendResponse({ ok: false, message: String(e) });
+        });
+        return true;
       }
       return undefined;
     }
 
-    return waitForOutlookOtp(message);
+    waitForOutlookOtp(message).then(sendResponse).catch((e) => {
+      sendResponse({ ok: false, message: String(e) });
+    });
+    return true; // keep message channel open for async response
   });
 });
 

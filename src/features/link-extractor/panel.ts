@@ -141,19 +141,24 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
       return;
     }
 
-    let response: CheckoutLinkResponse;
+    let response: CheckoutLinkResponse | null | undefined;
     try {
       response = await sendMessageSafe<CheckoutLinkResponse>({
         type: 'opx:create-checkout-link',
         raw: token,
         options,
-      }) as CheckoutLinkResponse;
+      });
     } catch (error) {
       if (error instanceof ExtensionInvalidatedError) {
-        setStatus(linkStatus, '⚠️ 扩展已更新，请刷新页面后重试', 'error');
+        setStatus(linkStatus, '⚠️ 扩展已更新，请刷新页面后重试（请按 F5 刷新页面）', 'error');
       } else {
         setStatus(linkStatus, `生成失败：${String(error)}`, 'error');
       }
+      return;
+    }
+
+    if (!response) {
+      setStatus(linkStatus, '⚠️ background 无响应，请刷新页面后重试（F5）', 'error');
       return;
     }
 

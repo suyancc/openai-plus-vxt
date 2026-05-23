@@ -23,7 +23,8 @@ export async function sendMessageSafe<T>(message: unknown): Promise<T | null> {
     throw new ExtensionInvalidatedError();
   }
   try {
-    return await browser.runtime.sendMessage(message) as T;
+    const result = await browser.runtime.sendMessage(message);
+    return (result ?? null) as T | null;
   } catch (error) {
     if (isContextInvalidatedError(error)) {
       throw new ExtensionInvalidatedError();
