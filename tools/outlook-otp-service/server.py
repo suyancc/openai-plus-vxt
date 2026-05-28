@@ -17,21 +17,23 @@ from outlook_mail.web import fetch_messages as fetch_outlook_messages
 
 
 APP_NAME = "OpenAI Plus VXT Outlook OTP Service"
-APP_VERSION = "0.1.2"
+APP_VERSION = "0.2.2"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
+DEFAULT_FETCH_LIMIT = 3
 _WINDOWS_CONSOLE_HANDLER: Any = None
 
 
 class OutlookFetchRequest(BaseModel):
     account_line: str = Field(..., min_length=1)
-    limit: int = 10
+    limit: int = DEFAULT_FETCH_LIMIT
     mailbox: str = "default"
     query: str = ""
     unseen_only: bool = False
     mark_seen: bool = False
     tenant: str = "consumers"
     use_password: bool = False
+    since: float | None = None
 
 
 class OutlookMessageRequest(BaseModel):
@@ -72,17 +74,20 @@ def health() -> dict[str, str]:
 @app.post("/api/outlook/fetch")
 def outlook_fetch(req: OutlookFetchRequest) -> dict[str, Any]:
     email = account_email(req.account_line)
-    log(f"开始检查邮箱：{email}，邮箱目录：{req.mailbox}，关键词：{req.query or '无'}，数量：{req.limit}")
+    fetch_limit = normalize_fetch_limit(req.limit)
+    query = str(req.query or "").strip()
+    log(f"开始检查邮箱：{email}，邮箱目录：{req.mailbox}，关键词：{query or '无'}，数量：{fetch_limit}")
     try:
         result = fetch_outlook_messages(
             req.account_line,
-            limit=req.limit,
+            limit=fetch_limit,
             mailbox=req.mailbox,
-            query=req.query,
+            query=query,
             unseen_only=req.unseen_only,
             mark_seen=req.mark_seen,
             tenant=req.tenant,
             use_password=req.use_password,
+            since=req.since,
         )
         messages = list(result.get("messages") or [])
         otp_items = [item for item in messages if str(item.get("otp") or "").strip()]
@@ -210,6 +215,14 @@ def short_text(value: Any, limit: int = 120) -> str:
     if len(text) <= limit:
         return text or "-"
     return f"{text[:limit - 3]}..."
+
+
+def normalize_fetch_limit(value: Any) -> int:
+    try:
+        raw = int(value or DEFAULT_FETCH_LIMIT)
+    except Exception:
+        raw = DEFAULT_FETCH_LIMIT
+    return max(1, min(raw, DEFAULT_FETCH_LIMIT))
 
 
 def log(message: str) -> None:

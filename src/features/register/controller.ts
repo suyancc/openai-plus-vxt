@@ -166,7 +166,10 @@ export function createRegisterController(): RegisterController {
       if (isAboutYouPage() && !autoProfileStarted) {
         autoProfileStarted = true;
         await waitForPageReady();
-        await fillAboutYouAndCreate();
+        const result = await fillAboutYouAndCreate();
+        if (!result.ok) {
+          autoProfileStarted = false;
+        }
       }
     },
   };

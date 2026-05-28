@@ -13,8 +13,9 @@ from typing import Iterable
 
 
 OTP_CONTEXT_RE = re.compile(
-    r"(verification|verify|security\s+code|one[-\s]?time|otp|passcode|login\s+code|"
-    r"code|验证码|校验码|确认码|动态码)",
+    r"(verification|verify|security\s+code|one[-\s]?time(?:\s+password|\s+code)?|"
+    r"otp|passcode|login\s+code|authentication\s+code|"
+    r"验证码|校验码|确认码|动态码)",
     re.IGNORECASE,
 )
 HTML_TAG_RE = re.compile(r"<[^>]+>")
@@ -198,8 +199,7 @@ def extract_otp(text: str, *, lengths: Iterable[int] = (6,)) -> str:
         if candidates:
             return candidates[0]
 
-    candidates = _digit_candidates(normalized, lengths)
-    return candidates[0] if candidates else ""
+    return ""
 
 
 def header_lines(msg: Message) -> str:

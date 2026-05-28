@@ -1,0 +1,345 @@
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - banner:
+      - generic:
+        - generic:
+          - link "返回 OpenAI OpCo, LLC":
+            - /url: https://chatgpt.com/#pricing
+            - generic:
+              - generic:
+                - img [ref=e6] [cursor=pointer]
+                - generic [ref=e8] [cursor=pointer]: 返回
+                - generic:
+                  - generic:
+                    - generic:
+                      - img "OpenAI OpCo, LLC logo"
+    - generic [ref=e11]:
+      - heading "订阅 ChatGPT Plus Subscription" [level=2] [ref=e12]
+      - generic [ref=e14]:
+        - generic [ref=e17]: US$0.00
+        - generic [ref=e22]:
+          - text: 然后在优惠券过期后，每月
+          - strong [ref=e23]: US$21.40
+  - generic [ref=e24]:
+    - main [ref=e25]:
+      - heading "联系信息" [level=2] [ref=e29]
+      - generic [ref=e33]:
+        - generic [ref=e34]:
+          - generic [ref=e41]:
+            - generic [ref=e42]: 邮箱
+            - generic [ref=e45]: williegridley3134@outlook.com
+          - heading "支付方式" [level=2] [ref=e47]
+        - generic [ref=e48]:
+          - list [ref=e49]:
+            - listitem [ref=e54]:
+              - generic [ref=e63]:
+                - generic [ref=e67]:
+                  - radio "银行卡" [ref=e68]
+                  - generic [ref=e70]: 银行卡
+                  - generic:
+                    - generic:
+                      - generic:
+                        - img "Visa"
+                    - generic:
+                      - generic:
+                        - img "MasterCard"
+                    - generic:
+                      - generic:
+                        - img "American Express"
+                    - generic:
+                      - img "Discover"
+                      - img "JCB"
+                      - img "Diners Club"
+                      - img "UnionPay"
+                - generic:
+                  - button "用银行卡支付"
+            - listitem [ref=e75]:
+              - generic [ref=e84]:
+                - generic [ref=e88]:
+                  - radio "PayPal" [ref=e89]
+                  - generic [ref=e91]: PayPal
+                - generic:
+                  - button "用 PayPal 支付"
+          - generic [ref=e100]:
+            - generic [ref=e103]:
+              - generic [ref=e104]: 保存我的信息，以更快结账
+              - generic [ref=e105]: 输入您的电话号码，即可在 OpenAI OpCo, LLC 以及所有接受 Link 的地方安全付款。
+            - generic [ref=e111]:
+              - generic [ref=e113]: 电话号码
+              - generic [ref=e114]:
+                - generic [ref=e115]:
+                  - combobox "Phone number country code" [ref=e116]:
+                    - option "阿尔巴尼亚 (+355)"
+                    - option "阿尔及利亚 (+213)"
+                    - option "阿富汗 (+93)"
+                    - option "阿根廷 (+54)"
+                    - option "阿拉伯联合酋长国 (+971)"
+                    - option "阿鲁巴 (+297)"
+                    - option "阿曼 (+968)"
+                    - option "阿塞拜疆 (+994)"
+                    - option "阿森松岛 (+247)"
+                    - option "埃及 (+20)"
+                    - option "埃塞俄比亚 (+251)"
+                    - option "爱尔兰 (+353)"
+                    - option "爱沙尼亚 (+372)"
+                    - option "安道尔 (+376)"
+                    - option "安哥拉 (+244)"
+                    - option "安圭拉 (+1)"
+                    - option "安提瓜和巴布达 (+1)"
+                    - option "奥地利 (+43)"
+                    - option "奥兰群岛 (+358)"
+                    - option "澳大利亚 (+61)"
+                    - option "巴巴多斯 (+1)"
+                    - option "巴布亚新几内亚 (+675)"
+                    - option "巴哈马 (+1)"
+                    - option "巴基斯坦 (+92)"
+                    - option "巴拉圭 (+595)"
+                    - option "巴勒斯坦领土 (+970)"
+                    - option "巴林 (+973)"
+                    - option "巴拿马 (+507)"
+                    - option "巴西 (+55)"
+                    - option "白俄罗斯 (+375)"
+                    - option "百慕大 (+1)"
+                    - option "保加利亚 (+359)"
+                    - option "北马其顿 (+389)"
+                    - option "贝宁 (+229)"
+                    - option "比利时 (+32)"
+                    - option "冰岛 (+354)"
+                    - option "波多黎各 (+1)"
+                    - option "波兰 (+48)"
+                    - option "波斯尼亚和黑塞哥维那 (+387)"
+                    - option "玻利维亚 (+591)"
+                    - option "伯利兹 (+501)"
+                    - option "博茨瓦纳 (+267)"
+                    - option "不丹 (+975)"
+                    - option "布基纳法索 (+226)"
+                    - option "布隆迪 (+257)"
+                    - option "赤道几内亚 (+240)"
+                    - option "丹麦 (+45)"
+                    - option "德国 (+49)"
+                    - option "东帝汶 (+670)"
+                    - option "多哥 (+228)"
+                    - option "多米尼加共和国 (+1)"
+                    - option "多米尼克 (+1)"
+                    - option "俄罗斯 (+7)"
+                    - option "厄瓜多尔 (+593)"
+                    - option "厄立特里亚 (+291)"
+                    - option "法国 (+33)"
+                    - option "法罗群岛 (+298)"
+                    - option "法属波利尼西亚 (+689)"
+                    - option "法属圭亚那 (+594)"
+                    - option "法属圣马丁 (+590)"
+                    - option "梵蒂冈 (+39)"
+                    - option "菲律宾 (+63)"
+                    - option "斐济 (+679)"
+                    - option "芬兰 (+358)"
+                    - option "佛得角 (+238)"
+                    - option "福克兰群岛 (+500)"
+                    - option "冈比亚 (+220)"
+                    - option "刚果（布） (+242)"
+                    - option "刚果（金） (+243)"
+                    - option "哥伦比亚 (+57)"
+                    - option "哥斯达黎加 (+506)"
+                    - option "格林纳达 (+1)"
+                    - option "格陵兰 (+299)"
+                    - option "格鲁吉亚 (+995)"
+                    - option "根西岛 (+44)"
+                    - option "瓜德罗普 (+590)"
+                    - option "关岛 (+1)"
+                    - option "圭亚那 (+592)"
+                    - option "哈萨克斯坦 (+7)"
+                    - option "海地 (+509)"
+                    - option "韩国 (+82)"
+                    - option "荷兰 (+31)"
+                    - option "荷属加勒比区 (+599)"
+                    - option "荷属圣马丁 (+1)"
+                    - option "黑山 (+382)"
+                    - option "洪都拉斯 (+504)"
+                    - option "基里巴斯 (+686)"
+                    - option "吉布提 (+253)"
+                    - option "吉尔吉斯斯坦 (+996)"
+                    - option "几内亚 (+224)"
+                    - option "几内亚比绍 (+245)"
+                    - option "加拿大 (+1)"
+                    - option "加纳 (+233)"
+                    - option "加蓬 (+241)"
+                    - option "柬埔寨 (+855)"
+                    - option "捷克 (+420)"
+                    - option "津巴布韦 (+263)"
+                    - option "喀麦隆 (+237)"
+                    - option "卡塔尔 (+974)"
+                    - option "开曼群岛 (+1)"
+                    - option "科摩罗 (+269)"
+                    - option "科索沃 (+383)"
+                    - option "科特迪瓦 (+225)"
+                    - option "科威特 (+965)"
+                    - option "克罗地亚 (+385)"
+                    - option "肯尼亚 (+254)"
+                    - option "库克群岛 (+682)"
+                    - option "库拉索 (+599)"
+                    - option "拉脱维亚 (+371)"
+                    - option "莱索托 (+266)"
+                    - option "老挝 (+856)"
+                    - option "黎巴嫩 (+961)"
+                    - option "立陶宛 (+370)"
+                    - option "利比里亚 (+231)"
+                    - option "利比亚 (+218)"
+                    - option "列支敦士登 (+423)"
+                    - option "留尼汪 (+262)"
+                    - option "卢森堡 (+352)"
+                    - option "卢旺达 (+250)"
+                    - option "罗马尼亚 (+40)"
+                    - option "马达加斯加 (+261)"
+                    - option "马恩岛 (+44)"
+                    - option "马尔代夫 (+960)"
+                    - option "马耳他 (+356)"
+                    - option "马拉维 (+265)"
+                    - option "马来西亚 (+60)"
+                    - option "马里 (+223)"
+                    - option "马提尼克 (+596)"
+                    - option "马约特 (+262)"
+                    - option "毛里求斯 (+230)"
+                    - option "毛里塔尼亚 (+222)"
+                    - option "美国 (+1)" [selected]
+                    - option "蒙古 (+976)"
+                    - option "蒙特塞拉特 (+1)"
+                    - option "孟加拉国 (+880)"
+                    - option "秘鲁 (+51)"
+                    - option "缅甸 (+95)"
+                    - option "摩尔多瓦 (+373)"
+                    - option "摩洛哥 (+212)"
+                    - option "摩纳哥 (+377)"
+                    - option "莫桑比克 (+258)"
+                    - option "墨西哥 (+52)"
+                    - option "纳米比亚 (+264)"
+                    - option "南非 (+27)"
+                    - option "南苏丹 (+211)"
+                    - option "瑙鲁 (+674)"
+                    - option "尼加拉瓜 (+505)"
+                    - option "尼泊尔 (+977)"
+                    - option "尼日尔 (+227)"
+                    - option "尼日利亚 (+234)"
+                    - option "纽埃 (+683)"
+                    - option "挪威 (+47)"
+                    - option "葡萄牙 (+351)"
+                    - option "日本 (+81)"
+                    - option "瑞典 (+46)"
+                    - option "瑞士 (+41)"
+                    - option "萨尔瓦多 (+503)"
+                    - option "萨摩亚 (+685)"
+                    - option "塞尔维亚 (+381)"
+                    - option "塞拉利昂 (+232)"
+                    - option "塞内加尔 (+221)"
+                    - option "塞浦路斯 (+357)"
+                    - option "塞舌尔 (+248)"
+                    - option "沙特阿拉伯 (+966)"
+                    - option "圣巴泰勒米 (+590)"
+                    - option "圣多美和普林西比 (+239)"
+                    - option "圣赫勒拿 (+290)"
+                    - option "圣基茨和尼维斯 (+1)"
+                    - option "圣卢西亚 (+1)"
+                    - option "圣马力诺 (+378)"
+                    - option "圣皮埃尔和密克隆群岛 (+508)"
+                    - option "圣文森特和格林纳丁斯 (+1)"
+                    - option "斯里兰卡 (+94)"
+                    - option "斯洛伐克 (+421)"
+                    - option "斯洛文尼亚 (+386)"
+                    - option "斯瓦尔巴和扬马延 (+47)"
+                    - option "斯威士兰 (+268)"
+                    - option "苏丹 (+249)"
+                    - option "苏里南 (+597)"
+                    - option "所罗门群岛 (+677)"
+                    - option "索马里 (+252)"
+                    - option "塔吉克斯坦 (+992)"
+                    - option "台湾 (+886)"
+                    - option "泰国 (+66)"
+                    - option "坦桑尼亚 (+255)"
+                    - option "汤加 (+676)"
+                    - option "特克斯和凯科斯群岛 (+1)"
+                    - option "特里斯坦-达库尼亚群岛 (+290)"
+                    - option "特立尼达和多巴哥 (+1)"
+                    - option "突尼斯 (+216)"
+                    - option "图瓦卢 (+688)"
+                    - option "土耳其 (+90)"
+                    - option "土库曼斯坦 (+993)"
+                    - option "托克劳 (+690)"
+                    - option "瓦利斯和富图纳 (+681)"
+                    - option "瓦努阿图 (+678)"
+                    - option "危地马拉 (+502)"
+                    - option "委内瑞拉 (+58)"
+                    - option "文莱 (+673)"
+                    - option "乌干达 (+256)"
+                    - option "乌克兰 (+380)"
+                    - option "乌拉圭 (+598)"
+                    - option "乌兹别克斯坦 (+998)"
+                    - option "西班牙 (+34)"
+                    - option "西撒哈拉 (+212)"
+                    - option "希腊 (+30)"
+                    - option "新加坡 (+65)"
+                    - option "新喀里多尼亚 (+687)"
+                    - option "新西兰 (+64)"
+                    - option "匈牙利 (+36)"
+                    - option "牙买加 (+1)"
+                    - option "亚美尼亚 (+374)"
+                    - option "也门 (+967)"
+                    - option "伊拉克 (+964)"
+                    - option "以色列 (+972)"
+                    - option "意大利 (+39)"
+                    - option "印度 (+91)"
+                    - option "印度尼西亚 (+62)"
+                    - option "英国 (+44)"
+                    - option "英属维尔京群岛 (+1)"
+                    - option "英属印度洋领地 (+246)"
+                    - option "约旦 (+962)"
+                    - option "越南 (+84)"
+                    - option "赞比亚 (+260)"
+                    - option "泽西岛 (+44)"
+                    - option "乍得 (+235)"
+                    - option "直布罗陀 (+350)"
+                    - option "智利 (+56)"
+                    - option "中非共和国 (+236)"
+                    - option "中国 (+86)"
+                    - option "中国澳门特别行政区 (+853)"
+                    - option "中国香港特别行政区 (+852)"
+                  - textbox "电话号码" [ref=e118]:
+                    - /placeholder: (201) 555-0123
+                - generic:
+                  - generic: 可选
+        - generic [ref=e120]:
+          - generic [ref=e123]:
+            - checkbox "我们将按照上述金额和周期向你收费，直到你取消为止。我们可能会更改使用条款中所述的价格。你可以随时取消。订阅即表示，你同意 OpenAI 的使用条款和隐私政策，并且你授权我们存储你的付款方式，以用于续订和其他购买操作。" [ref=e125] [cursor=pointer]
+            - paragraph [ref=e129] [cursor=pointer]:
+              - text: 我们将按照上述金额和周期向你收费，直到你取消为止。我们可能会更改
+              - link "使用条款" [ref=e130]:
+                - /url: https://openai.com/terms/
+              - text: 中所述的价格。你可以
+              - link "随时取消" [ref=e131]:
+                - /url: https://help.openai.com/en/articles/7232927-how-do-i-cancel-my-chatgpt-plus-subscription
+              - text: 。订阅即表示，你同意 OpenAI 的
+              - link "使用条款" [ref=e132]:
+                - /url: https://openai.com/terms/
+              - text: 和
+              - link "隐私政策" [ref=e133]:
+                - /url: https://openai.com/privacy/
+              - text: ，并且你授权我们存储你的付款方式，以用于续订和其他购买操作。
+          - button "订阅" [ref=e136] [cursor=pointer]:
+            - generic:
+              - generic [ref=e138]: 订阅
+              - generic [ref=e139]: 正在处理
+            - img [ref=e144]
+            - img [ref=e149]
+      - generic:
+        - textbox "Agent Identity Token" [ref=e151]
+        - generic [ref=e152]:
+          - checkbox "I am an AI agent acting on behalf of someone else" [ref=e153]
+          - text: I am an AI agent acting on behalf of someone else
+    - contentinfo [ref=e155]:
+      - link "Powered by Stripe" [ref=e157] [cursor=pointer]:
+        - /url: https://stripe.com
+        - generic [ref=e158]:
+          - text: Powered by
+          - img "Stripe" [ref=e160]
+      - link "条款" [ref=e163] [cursor=pointer]:
+        - /url: https://stripe.com/legal/end-users
+      - link "隐私" [ref=e164] [cursor=pointer]:
+        - /url: https://stripe.com/privacy

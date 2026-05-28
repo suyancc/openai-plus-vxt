@@ -1,6 +1,6 @@
 # Outlook OTP Service
 
-独立的本地 Outlook 验证码服务，用于配合 OpenAI Plus VXT 注册 tab 自动接收邮箱验证码。
+独立的本地服务，用于配合 OpenAI Plus VXT 注册 tab 自动接收 Outlook 验证码和读取邮件内容。
 
 ## 运行
 
@@ -52,9 +52,9 @@ Content-Type: application/json
 
 {
   "account_line": "email----password----client_id----refresh_token",
-  "limit": 10,
+  "limit": 3,
   "mailbox": "default",
-  "query": "OpenAI",
+  "query": "验证码",
   "unseen_only": false,
   "mark_seen": false
 }
@@ -64,4 +64,17 @@ Content-Type: application/json
 
 ```text
 messages[].otp
+```
+
+读取完整邮件：
+
+```http
+POST /api/outlook/message
+Content-Type: application/json
+
+{
+  "account_line": "email----password----client_id----refresh_token",
+  "uid": "123",
+  "mailbox": "INBOX"
+}
 ```

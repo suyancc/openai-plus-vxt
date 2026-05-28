@@ -4,6 +4,8 @@ export type CheckoutUiMode = 'custom' | 'hosted';
 
 export type CheckoutRegion = 'US' | 'ID' | 'DE' | 'JP';
 
+export type CheckoutExtractMode = 'local' | 'server';
+
 export interface CheckoutOptions {
   planName: CheckoutPlanName;
   uiMode: CheckoutUiMode;
@@ -14,6 +16,7 @@ export interface CheckoutOptions {
 
 export interface LinkExtractorState {
   checkoutOptions: CheckoutOptions;
+  checkoutExtractMode: CheckoutExtractMode;
   updatedAt: number;
 }
 
@@ -21,6 +24,7 @@ export interface CheckoutLinkMessage {
   type: 'opx:create-checkout-link';
   raw: string;
   options: Partial<CheckoutOptions>;
+  extractMode?: CheckoutExtractMode;
 }
 
 export interface CheckoutLinkResponse {
@@ -51,6 +55,10 @@ export interface ChatGptSessionInfo {
   email: string;
   planType: string;
   accessToken: string;
+  sessionToken: string;
+  accountId: string;
+  userId: string;
+  expiresAt: string;
   fetchedAt: number;
 }
 

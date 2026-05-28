@@ -1,0 +1,124 @@
+- generic [active] [ref=e1]:
+  - img [ref=e5] [cursor=pointer]
+  - generic [ref=e8]:
+    - banner [ref=e10]:
+      - generic [ref=e11]:
+        - link "SMSBower Logo" [ref=e12] [cursor=pointer]:
+          - /url: https://smsbower.app/cn
+          - img "SMSBower Logo" [ref=e13]
+        - generic [ref=e14]:
+          - button "登录" [ref=e17] [cursor=pointer]
+          - img [ref=e19] [cursor=pointer]
+    - main [ref=e20]:
+      - generic [ref=e21]:
+        - list [ref=e25]:
+          - listitem [ref=e26]:
+            - link "主要内容" [ref=e27] [cursor=pointer]:
+              - /url: https://smsbower.app
+              - generic [ref=e28]: 主要内容
+          - listitem [ref=e29]:
+            - text: /
+            - generic [ref=e30]: API 文档
+        - generic [ref=e31]: API
+        - generic [ref=e33]:
+          - link "对于客户" [ref=e34] [cursor=pointer]:
+            - /url: https://smsbower.app/cn/api?page=client
+          - link "对于合作伙伴" [ref=e35] [cursor=pointer]:
+            - /url: https://smsbower.app/cn/api?page=partner
+          - link "Temporary mail" [ref=e36] [cursor=pointer]:
+            - /url: https://smsbower.app/cn/api?page=mails
+          - link "其他" [ref=e37] [cursor=pointer]:
+            - /url: https://smsbower.app/cn/api?page=other
+        - generic [ref=e38]:
+          - generic [ref=e40]:
+            - generic [ref=e41]: API 文档
+            - generic [ref=e42]:
+              - link "预定号码租用" [ref=e43] [cursor=pointer]:
+                - /url: "#faq-get-balance"
+              - link "请求号码" [ref=e44] [cursor=pointer]:
+                - /url: "#faq-get-phone-number"
+              - link "获取短信代码" [ref=e45] [cursor=pointer]:
+                - /url: "#faq-get-sms-code"
+              - link "激活状态的修改" [ref=e46] [cursor=pointer]:
+                - /url: "#faq-change-status"
+              - link "收到各国家现实的价格" [ref=e47] [cursor=pointer]:
+                - /url: "#faq-prices"
+              - link "服务" [ref=e48] [cursor=pointer]:
+                - /url: "#faq-table-services"
+              - link "国家" [ref=e49] [cursor=pointer]:
+                - /url: "#faq-table-countries"
+              - link "Top countries by service" [ref=e50] [cursor=pointer]:
+                - /url: "#faq-top-countries-by-service"
+              - link "请求号码 v2" [ref=e51] [cursor=pointer]:
+                - /url: "#faq-get-phone-numberV2"
+              - link "收到各国家现实的价格 v2" [ref=e52] [cursor=pointer]:
+                - /url: "#faq-pricesV2"
+              - link "收到各国家现实的价格 v3" [ref=e53] [cursor=pointer]:
+                - /url: "#faq-pricesV3"
+              - link "Get static wallet for payment" [ref=e54] [cursor=pointer]:
+                - /url: "#faq-staticWallet"
+              - link "通过 Webhook 发送通知" [ref=e55] [cursor=pointer]:
+                - /url: "#faq-webhookNotification"
+          - generic [ref=e56]:
+            - generic [ref=e57]:
+              - paragraph [ref=e58]: API 是允许您的软件和我们的激活服务器之间通信的协议 .
+              - paragraph [ref=e59]: 您这边的 SMS、OTP 和 PVA 接收过程需要 API 来实现自动化。
+              - paragraph
+              - text: 我们的 API 与竞争对手的网站完全兼容。
+              - text: 所有请求都应为 https://smsbower.page/stubs/handler_api.php
+              - text: POST 或 GET 请求。
+              - paragraph [ref=e60]: 所有请求都必须有一个 API 密钥作为参数“api_key”
+            - generic [ref=e61]:
+              - generic [ref=e65]: 预定号码租用
+              - generic [ref=e70]: 请求号码
+              - generic [ref=e75]: 获取短信代码
+              - generic [ref=e80]: 激活状态的修改
+              - generic [ref=e85]: 收到各国家现实的价格
+              - generic [ref=e90]: 服务列表
+              - generic [ref=e95]: 国家列表
+              - generic [ref=e100]: Get top countries by service
+              - generic [ref=e105]: 请求号码V2
+              - generic [ref=e110]: 获取完整价格表 v2
+              - generic [ref=e115]: 获取完整价格表 v3
+              - generic [ref=e120]: Get static wallet
+              - generic [ref=e125]: 通过 Webhook 发送通知
+            - generic [ref=e127]:
+              - generic [ref=e128]: Example Postman
+              - link "Link" [ref=e130] [cursor=pointer]:
+                - /url: https://documenter.getpostman.com/view/16514200/2sAYdkFTue
+    - contentinfo [ref=e131]:
+      - generic [ref=e133]:
+        - link [ref=e134] [cursor=pointer]:
+          - /url: "#"
+          - img [ref=e135]
+        - generic [ref=e136]:
+          - link "FAQ" [ref=e138] [cursor=pointer]:
+            - /url: https://smsbower.app/cn/faq
+          - link "博客" [ref=e140] [cursor=pointer]:
+            - /url: https://smsbower.app/cn/blogs
+          - link "联系人" [ref=e142] [cursor=pointer]:
+            - /url: https://smsbower.app/cn/contacts
+          - link "合作伙伴" [ref=e144] [cursor=pointer]:
+            - /url: https://smsbower.app/cn/partners
+          - link "用户协议" [ref=e146] [cursor=pointer]:
+            - /url: https://smsbower.app/cn/offer
+          - link "隐私政策" [ref=e148] [cursor=pointer]:
+            - /url: https://smsbower.app/cn/privacy
+        - generic [ref=e149]:
+          - link "Telegram" [ref=e150] [cursor=pointer]:
+            - /url: https://t.me/smsbower_customers
+            - img "Telegram" [ref=e151]
+          - link "Facebook" [ref=e152] [cursor=pointer]:
+            - /url: https://www.facebook.com/profile.php?id=61552759050997
+            - img "Facebook" [ref=e153]
+          - link "Instagram" [ref=e154] [cursor=pointer]:
+            - /url: https://www.instagram.com/smsbower_ru
+            - img "Instagram" [ref=e155]
+  - generic [ref=e158]:
+    - generic [ref=e160]:
+      - img [ref=e161]
+      - generic [ref=e163]: 我们使用cookie来改进网站。继续使用网站，即表示您同意使用cookie。
+    - generic [ref=e165]:
+      - button "接受" [ref=e166] [cursor=pointer]
+      - button "拒绝" [ref=e167] [cursor=pointer]
+  - button [ref=e168] [cursor=pointer]: Купить

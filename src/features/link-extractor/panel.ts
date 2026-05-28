@@ -1,7 +1,13 @@
 import { loadLinkExtractorState, saveLinkExtractorState } from '../../app/state';
 import type { FeaturePanelHandle } from '../../app/types';
-import { extractAccessToken, normalizeCheckoutOptions } from './checkout';
-import type { ChatGptSessionResponse, CheckoutLinkResponse, CheckoutOptions } from './types';
+import { flashButtonLabel, setButtonPending, withButtonPending } from '../../app/button-feedback';
+import { extractAccessToken, normalizeCheckoutExtractMode, normalizeCheckoutOptions } from './checkout';
+import type {
+  ChatGptSessionResponse,
+  CheckoutLinkResponse,
+  CheckoutExtractMode,
+  CheckoutOptions,
+} from './types';
 
 const REGION_OPTIONS = [
   ['ID', '印尼 / IDR'],
@@ -32,13 +38,21 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
     ['hosted', '长链接 / hosted'],
   ]);
   const regionSelect = createSelect(REGION_OPTIONS);
+  const extractModeSelect = createSelect([
+    ['local', '本地'],
+    ['server', '服务器 API'],
+  ]);
   const workspaceInput = createInput('Workspace 名称', 'text');
   const seatsInput = createInput('席位数量', 'number');
   seatsInput.min = '2';
   seatsInput.step = '1';
 
+  const modeGrid = document.createElement('div');
+  modeGrid.className = 'opx-grid opx-checkout-mode-grid';
+  modeGrid.append(createField('提取模式', extractModeSelect));
+
   const mainGrid = document.createElement('div');
-  mainGrid.className = 'opx-grid';
+  mainGrid.className = 'opx-grid opx-checkout-options-grid';
   const planField = createField('套餐类型', planSelect);
   const uiModeField = createField('链接形式', uiModeSelect);
   const regionField = createField('计费区域', regionSelect);
@@ -91,6 +105,7 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
   const update = async () => {
     const saved = await loadLinkExtractorState();
     setCheckoutOptions(saved.checkoutOptions);
+    setExtractMode(saved.checkoutExtractMode);
   };
 
   const onShow = async () => {
@@ -100,20 +115,30 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
   const syncLinkOptions = async () => {
     try {
       const options = readCheckoutOptions();
-      await saveLinkExtractorState({ checkoutOptions: options });
-      setLinkSummary(options);
+      const extractMode = readExtractMode();
+      await saveLinkExtractorState({ checkoutOptions: options, checkoutExtractMode: extractMode });
+      setLinkSummary(options, extractMode);
       setStatus(linkStatus, '本地参数已更新', 'ok');
     } catch (error) {
       setStatus(linkStatus, errorMessage(error), 'error');
     }
   };
 
-  for (const item of [planSelect, uiModeSelect, regionSelect, workspaceInput, seatsInput]) {
+  for (const item of [
+    planSelect,
+    uiModeSelect,
+    regionSelect,
+    extractModeSelect,
+    workspaceInput,
+    seatsInput,
+  ]) {
     item.addEventListener('change', () => void syncLinkOptions());
     item.addEventListener('input', () => void syncLinkOptions());
   }
 
-  refreshSessionButton.addEventListener('click', () => void refreshSession());
+  refreshSessionButton.addEventListener('click', () => {
+    void withButtonPending(refreshSessionButton, '读取中...', refreshSession);
+  });
 
   tokenInput.addEventListener('paste', () => window.setTimeout(() => normalizeTokenInput(false), 0));
   tokenInput.addEventListener('input', () => {
@@ -128,22 +153,25 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
       return;
     }
     generateLinkInFlight = true;
-    const originalLabel = generateLinkButton.textContent || '生成订阅链接';
-    generateLinkButton.disabled = true;
-    generateLinkButton.textContent = '生成中...';
+    const restoreButton = setButtonPending(generateLinkButton, '生成中...');
+    clearGeneratedLinkForRequest();
     setStatus(linkStatus, '正在生成订阅链接...', 'pending');
     try {
       const token = tokenInput.value.trim() ? normalizeTokenInput(true) : sessionAccessToken;
       if (!token) {
+        setGeneratedLink('');
         setStatus(linkStatus, '没有 accessToken，请先读取 session 或手动粘贴。', 'error');
         return;
       }
 
       let options: CheckoutOptions;
+      let extractMode: CheckoutExtractMode;
       try {
         options = readCheckoutOptions();
-        await saveLinkExtractorState({ checkoutOptions: options });
+        extractMode = readExtractMode();
+        await saveLinkExtractorState({ checkoutOptions: options, checkoutExtractMode: extractMode });
       } catch (error) {
+        setGeneratedLink('');
         setStatus(linkStatus, errorMessage(error), 'error');
         return;
       }
@@ -154,8 +182,10 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
           type: 'opx:create-checkout-link',
           raw: token,
           options,
+          extractMode,
         });
       } catch (error) {
+        setGeneratedLink('');
         setStatus(linkStatus, `生成失败：${String(error)}`, 'error');
         return;
       }
@@ -171,8 +201,7 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
       setStatus(linkStatus, response.message, 'ok');
     } finally {
       generateLinkInFlight = false;
-      generateLinkButton.disabled = false;
-      generateLinkButton.textContent = originalLabel;
+      restoreButton();
     }
   });
 
@@ -181,12 +210,14 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
       return;
     }
     await navigator.clipboard.writeText(generatedLink);
+    flashButtonLabel(copyLinkButton, '已复制');
     setStatus(linkStatus, '已复制链接', 'ok');
   });
 
   openLinkButton.addEventListener('click', () => {
     if (generatedLink) {
       window.open(generatedLink, '_blank', 'noopener,noreferrer');
+      flashButtonLabel(openLinkButton, '已打开');
     }
   });
 
@@ -198,6 +229,7 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
     setGeneratedLink('');
     setSessionRows('', '', '');
     setStatus(linkStatus, '已清空', 'ok');
+    flashButtonLabel(clearLinkButton, '已清空');
     tokenInput.focus();
   });
 
@@ -205,6 +237,7 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
     linkSummary,
     sessionCard,
     refreshSessionButton,
+    modeGrid,
     mainGrid,
     teamOptions,
     tokenInput,
@@ -223,7 +256,6 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
       return;
     }
     sessionFetchInFlight = true;
-    refreshSessionButton.disabled = true;
     setStatus(linkStatus, '正在读取 https://chatgpt.com/api/auth/session ...', 'pending');
     try {
       const response: ChatGptSessionResponse = await browser.runtime.sendMessage({
@@ -247,7 +279,6 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
     } catch (error) {
       setStatus(linkStatus, `读取 session 失败：${String(error)}`, 'error');
     } finally {
-      refreshSessionButton.disabled = false;
       sessionFetchInFlight = false;
     }
   }
@@ -259,7 +290,7 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
     regionSelect.value = options.region;
     workspaceInput.value = options.workspaceName;
     seatsInput.value = String(options.seatQuantity);
-    setLinkSummary(options);
+    setLinkSummary(options, readExtractMode());
   }
 
   function readCheckoutOptions(): CheckoutOptions {
@@ -272,11 +303,21 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
     });
   }
 
-  function setLinkSummary(options: CheckoutOptions): void {
+  function setExtractMode(value: unknown): void {
+    extractModeSelect.value = normalizeCheckoutExtractMode(value);
+    setLinkSummary(readCheckoutOptions(), readExtractMode());
+  }
+
+  function readExtractMode(): CheckoutExtractMode {
+    return normalizeCheckoutExtractMode(extractModeSelect.value);
+  }
+
+  function setLinkSummary(options: CheckoutOptions, extractMode: CheckoutExtractMode): void {
     const planText = options.planName === 'chatgptteamplan' ? `Team · ${options.seatQuantity} seats` : 'Plus';
     const modeText = options.uiMode === 'hosted' ? '长链接 hosted' : '短链接 custom';
+    const extractModeText = extractMode === 'server' ? '服务器 API' : '本地';
     const sessionText = sessionFetchedOnce ? 'session 已请求' : 'session 待读取';
-    linkSummary.textContent = `${planText} · ${modeText} · ${options.region} · ${sessionText}`;
+    linkSummary.textContent = `${planText} · ${modeText} · ${options.region} · ${extractModeText} · ${sessionText}`;
     teamOptions.hidden = options.planName !== 'chatgptteamplan';
     regionField.hidden = options.planName === 'chatgptteamplan';
   }
@@ -302,8 +343,17 @@ export function createLinkExtractorPanel(container: HTMLElement): FeaturePanelHa
   function setGeneratedLink(link: string): void {
     generatedLink = link;
     linkOutput.value = link;
+    linkOutput.placeholder = '生成后的订阅链接';
     copyLinkButton.disabled = !link;
     openLinkButton.disabled = !link;
+  }
+
+  function clearGeneratedLinkForRequest(): void {
+    generatedLink = '';
+    linkOutput.value = '';
+    linkOutput.placeholder = '正在生成订阅链接...';
+    copyLinkButton.disabled = true;
+    openLinkButton.disabled = true;
   }
 
   function setSessionRows(email: string, planType: string, accessToken: string): void {

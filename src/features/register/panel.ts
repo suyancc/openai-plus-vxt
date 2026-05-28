@@ -1,8 +1,6 @@
 import type { FeaturePanelHandle } from '../../app/types';
+import { setButtonPending } from '../../app/button-feedback';
 import type { RegisterController } from './types';
-
-const OTP_SERVICE_DOWNLOAD_URL =
-  'https://github.com/suyancc/openai-plus-vxt/releases/download/outlook-otp-service/outlook-otp-service.zip';
 
 export function createRegisterPanel(container: HTMLElement, controller: RegisterController): FeaturePanelHandle {
   const accountInput = document.createElement('textarea');
@@ -15,14 +13,6 @@ export function createRegisterPanel(container: HTMLElement, controller: Register
   inputHint.className = 'opx-hint';
   inputHint.textContent = '支持 user@example.com 或 email----password----client_id----refresh_token';
 
-  const downloadOtpLink = document.createElement('a');
-  downloadOtpLink.className = 'opx-download-link';
-  downloadOtpLink.href = OTP_SERVICE_DOWNLOAD_URL;
-  downloadOtpLink.target = '_blank';
-  downloadOtpLink.rel = 'noopener noreferrer';
-  downloadOtpLink.textContent = '下载接码软件';
-
-  const openRegisterButton = createButton('打开注册页', 'opx-button opx-button-secondary');
   const emailButton = createButton('填入邮箱并继续');
   const otp = document.createElement('input');
   otp.className = 'opx-input';
@@ -68,37 +58,52 @@ export function createRegisterPanel(container: HTMLElement, controller: Register
       : '单邮箱模式：验证码需要手动输入';
   });
 
-  openRegisterButton.addEventListener('click', async () => {
-    setStatus(status, '正在打开注册页...', 'pending');
-    setResult(status, await controller.openRegisterPage());
-  });
-
   emailButton.addEventListener('click', async () => {
-    setStatus(status, '正在提交邮箱...', 'pending');
-    await controller.saveInput(accountInput.value);
-    setResult(status, await controller.fillEmailFromInput());
-    await update();
+    const restoreButton = setButtonPending(emailButton, '提交中...');
+    try {
+      setStatus(status, '正在提交邮箱...', 'pending');
+      await controller.saveInput(accountInput.value);
+      setResult(status, await controller.fillEmailFromInput());
+    } finally {
+      restoreButton();
+      await update();
+    }
   });
 
   otpButton.addEventListener('click', async () => {
-    setStatus(status, '正在提交验证码...', 'pending');
-    setResult(status, await controller.fillOtp(otp.value));
-    await update();
+    const restoreButton = setButtonPending(otpButton, '提交中...');
+    try {
+      setStatus(status, '正在提交验证码...', 'pending');
+      setResult(status, await controller.fillOtp(otp.value));
+    } finally {
+      restoreButton();
+      await update();
+    }
   });
 
   stopOtpButton.addEventListener('click', async () => {
-    setStatus(status, '正在停止接收验证码...', 'pending');
-    setResult(status, await controller.stopOutlookOtp());
-    await update();
+    const restoreButton = setButtonPending(stopOtpButton, '停止中...');
+    try {
+      setStatus(status, '正在停止接收验证码...', 'pending');
+      setResult(status, await controller.stopOutlookOtp());
+    } finally {
+      restoreButton();
+      await update();
+    }
   });
 
   profileButton.addEventListener('click', async () => {
-    setStatus(status, '正在填写资料...', 'pending');
-    setResult(status, await controller.fillProfileAndCreate());
-    await update();
+    const restoreButton = setButtonPending(profileButton, '填写中...');
+    try {
+      setStatus(status, '正在填写资料...', 'pending');
+      setResult(status, await controller.fillProfileAndCreate());
+    } finally {
+      restoreButton();
+      await update();
+    }
   });
 
-  container.append(openRegisterButton, accountInput, inputHint, downloadOtpLink, emailButton, otpState, stopOtpButton, otp, otpButton, profileButton, status);
+  container.append(accountInput, inputHint, emailButton, otpState, stopOtpButton, otp, otpButton, profileButton, status);
   void update();
   return { update };
 }

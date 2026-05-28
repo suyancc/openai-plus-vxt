@@ -1,3 +1,4 @@
+import { loadAutomationState } from '../../app/state';
 import { loadAddressAutofillSettings, saveAddressAutofillSettings } from '../settings/state';
 import type { AddressAutofillSettings } from '../settings/types';
 import type { AddressProfile, RandomAddressResponse } from './types';
@@ -14,10 +15,39 @@ const OPENAI_RANDOM_BUTTON_ID = 'opx-openai-pay-random-fill';
 const AUTOCOMPLETE_DROPDOWN_SELECTOR = '.AutocompleteInput-dropdown-container';
 const AUTOCOMPLETE_HIDE_STYLE_ID = 'opx-openai-pay-autocomplete-hide-style';
 const MAX_AUTO_AUTOFILL_ATTEMPTS = 4;
+const ZERO_AMOUNT_SUBMIT_BUTTON_SELECTOR = 'button[data-testid="hosted-payment-submit-button"]';
 
 interface StorageChangeValue {
   oldValue?: unknown;
   newValue?: unknown;
+}
+
+interface PayOpenAiFillResult {
+  ok: boolean;
+  filled: number;
+  message: string;
+  canRetry?: boolean;
+  submitted?: boolean;
+  requiresSubmit?: boolean;
+  paymentError?: string;
+}
+
+interface PaymentSubmitResult {
+  message: string;
+  canRetry: boolean;
+  submitted: boolean;
+  requiresSubmit: boolean;
+  paymentError?: string;
+}
+
+type CheckoutAmountRole = 'due' | 'plan' | 'unknown';
+
+interface CheckoutAmountCandidate {
+  element: HTMLElement;
+  text: string;
+  minorUnits: number;
+  priority: number;
+  role: CheckoutAmountRole;
 }
 
 let initialized = false;
@@ -29,6 +59,50 @@ let fillInFlight = false;
 let filledAddressKey = '';
 let autoAttemptCount = 0;
 let autoAutofillFinished = false;
+let paypalClickAttempts = 0;
+let zeroAmountSubmitKey = '';
+
+export function checkPayOpenAiCheckoutReady(): { ok: boolean; message: string; data?: unknown } {
+  if (location.hostname !== 'pay.openai.com') {
+    return { ok: false, message: '当前不是 OpenAI 支付页', data: currentPaymentPageData('not-openai-pay') };
+  }
+  if (!isLiveCheckoutSessionPage()) {
+    return { ok: false, message: '当前不是 OpenAI 订阅 checkout 页面', data: currentPaymentPageData('not-live-checkout') };
+  }
+  const amount = findCheckoutAmount();
+  const paypalButton = findPaypalAccordionButton();
+  const submitButton = findZeroAmountSubmitButton();
+  if (!amount.found && !paypalButton && !submitButton) {
+    return { ok: false, message: 'OpenAI 订阅页订单信息尚未渲染', data: currentPaymentPageData('loading') };
+  }
+  if (amount.found && !paypalButton) {
+    return {
+      ok: false,
+      message: 'OpenAI 订阅页没有 PayPal 支付选项，当前邮箱不可用',
+      data: {
+        ...currentPaymentPageData('openai-checkout-no-paypal'),
+        paypalUnavailable: true,
+      },
+    };
+  }
+  return {
+    ok: true,
+    message: amount.found ? `OpenAI 订阅页已就绪，应付金额 ${amount.text}` : 'OpenAI 订阅页已就绪',
+    data: currentPaymentPageData('openai-checkout'),
+  };
+}
+
+export async function submitOpenAiCheckoutNow(address: AddressProfile): Promise<PayOpenAiFillResult> {
+  if (location.hostname !== 'pay.openai.com') {
+    return { ok: false, filled: 0, message: '当前不是 OpenAI 支付页' };
+  }
+  if (!isLiveCheckoutSessionPage()) {
+    return { ok: false, filled: 0, message: '当前不是 OpenAI 订阅 checkout 页面' };
+  }
+  autoAutofillFinished = true;
+  cancelScheduledAutofill();
+  return fillPayOpenAiAddressNow(address, { force: true });
+}
 
 export function initPayOpenAiAddressAutofill(): void {
   if (initialized || location.hostname !== 'pay.openai.com') {
@@ -52,6 +126,13 @@ async function runAutofill(): Promise<void> {
   running = true;
   autoAttemptCount += 1;
   try {
+    if (await isAutomationRunActive()) {
+      autoAutofillFinished = true;
+      cancelScheduledAutofill();
+      console.info(`${LOG_PREFIX} automation running, skip standalone autofill`);
+      return;
+    }
+
     const settings = await loadAddressAutofillSettings();
     if (!settings.payOpenAiEnabled) {
       console.info(`${LOG_PREFIX} disabled`);
@@ -65,9 +146,11 @@ async function runAutofill(): Promise<void> {
     }
 
     const result = await fillPayOpenAiAddressNow(address, { force: false });
-    if (result.ok || filledAddressKey === createAddressKey(address)) {
+    if (!result.canRetry && (result.ok || filledAddressKey === createAddressKey(address))) {
       autoAutofillFinished = true;
       cancelScheduledAutofill();
+    } else if (result.canRetry && autoAttemptCount < MAX_AUTO_AUTOFILL_ATTEMPTS) {
+      scheduleAutofill(900);
     } else if (autoAttemptCount >= MAX_AUTO_AUTOFILL_ATTEMPTS) {
       autoAutofillFinished = true;
     }
@@ -89,37 +172,93 @@ async function runAutofill(): Promise<void> {
 export async function fillPayOpenAiAddressNow(
   address: AddressProfile,
   options: { force?: boolean } = { force: true },
-): Promise<{ ok: boolean; filled: number; message: string }> {
+): Promise<PayOpenAiFillResult> {
   if (location.hostname !== 'pay.openai.com') {
     return { ok: false, filled: 0, message: '当前不是 pay.openai.com 页面' };
   }
 
   const addressKey = createAddressKey(address);
   if (!options.force && filledAddressKey === addressKey) {
-    return { ok: true, filled: 0, message: 'OpenAI 支付页已填写过当前地址' };
+    const submitResult = await trySubmitZeroAmountCheckout(addressKey);
+    const submitOk = isPaymentSubmitComplete(submitResult);
+    return {
+      ok: submitOk,
+      filled: 0,
+      canRetry: submitResult.canRetry,
+      submitted: submitResult.submitted,
+      requiresSubmit: submitResult.requiresSubmit,
+      paymentError: submitResult.paymentError,
+      message: appendMessage('OpenAI 支付页已填写过当前地址', submitResult.message),
+    };
   }
 
   if (fillInFlight) {
+    if (options.force) {
+      const idle = await waitForPayOpenAiFillIdle(8_000);
+      if (idle) {
+        return fillPayOpenAiAddressNow(address, options);
+      }
+      return {
+        ok: false,
+        filled: 0,
+        canRetry: true,
+        message: 'OpenAI 支付页正在填写，等待结束超时，请稍后重试',
+      };
+    }
     return { ok: false, filled: 0, message: 'OpenAI 支付页正在填写，已跳过重复触发' };
   }
 
   fillInFlight = true;
   try {
-    selectPaypalIfPresent();
-    await delay(450);
+    const paypal = await ensurePaypalReadyForAutofill();
+    if (paypal.required && !paypal.ready) {
+      if (paypal.canRetry) {
+        scheduleAutofill(900);
+      } else {
+        autoAutofillFinished = true;
+        cancelScheduledAutofill();
+      }
+      return {
+        ok: false,
+        filled: 0,
+        canRetry: paypal.canRetry,
+        message: paypal.message,
+      };
+    }
+
+    if (!hasVisibleBillingFields() && !checkoutContainsAddressValues(address)) {
+      return {
+        ok: false,
+        filled: 0,
+        canRetry: true,
+        submitted: false,
+        requiresSubmit: true,
+        message: 'OpenAI 支付表单尚未渲染完成，等待后重试',
+      };
+    }
+
     const filled = await fillCheckoutFields(address);
     if (filled > 0 || checkoutContainsAddressValues(address)) {
       filledAddressKey = addressKey;
     }
     hideAutocompleteDropdowns();
+    const filledOk = filled > 0 || filledAddressKey === addressKey;
+    const submitResult: PaymentSubmitResult = filledOk
+      ? await trySubmitZeroAmountCheckout(addressKey)
+      : { message: '', canRetry: false, submitted: false, requiresSubmit: false };
+    const submitOk = isPaymentSubmitComplete(submitResult);
     return {
-      ok: filled > 0 || filledAddressKey === addressKey,
+      ok: filledOk && submitOk,
       filled,
-      message: filled > 0
+      canRetry: submitResult.canRetry,
+      submitted: submitResult.submitted,
+      requiresSubmit: submitResult.requiresSubmit,
+      paymentError: submitResult.paymentError,
+      message: appendMessage(filled > 0
         ? `已填写 OpenAI 支付页 ${filled} 项`
         : filledAddressKey === addressKey
           ? 'OpenAI 支付页已存在当前地址'
-          : '未找到可填写的 OpenAI 支付字段',
+          : '未找到可填写的 OpenAI 支付字段', submitResult.message),
     };
   } finally {
     fillInFlight = false;
@@ -186,6 +325,7 @@ async function fetchFreshAddressAndFill(button: HTMLButtonElement, status: HTMLE
     pageAddress = response.address;
     pageAddressScope = `${settings.countryCode}|${settings.city}`;
     await saveAddressAutofillSettings({ lastAddress: response.address });
+    paypalClickAttempts = 0;
     const result = await fillPayOpenAiAddressNow(response.address, { force: true });
     status.textContent = result.ok ? `已输入 ${result.filled} 项` : result.message;
   } catch (error) {
@@ -229,10 +369,51 @@ async function fillCheckoutFields(address: AddressProfile): Promise<number> {
   return filled;
 }
 
-function selectPaypalIfPresent(): boolean {
+async function ensurePaypalReadyForAutofill(): Promise<{ required: boolean; ready: boolean; canRetry: boolean; message: string }> {
+  const paypalButton = findPaypalAccordionButton();
+  if (!paypalButton) {
+    const amount = findCheckoutAmount();
+    if (amount.found) {
+      return { required: true, ready: false, canRetry: false, message: 'OpenAI 订阅页没有 PayPal 支付选项，当前邮箱不可用' };
+    }
+    return { required: false, ready: true, canRetry: false, message: '未发现 PayPal 支付方式按钮，继续按当前表单填写' };
+  }
+
+  if (isPaypalPaymentMethodReady()) {
+    return { required: true, ready: true, canRetry: false, message: 'PayPal 支付方式已展开' };
+  }
+
+  if (paypalClickAttempts < MAX_AUTO_AUTOFILL_ATTEMPTS) {
+    paypalClickAttempts += 1;
+    clickPaypalPaymentMethod(paypalButton);
+  }
+
+  const ready = await waitForPaypalPaymentMethodReady(2500);
+  const canRetry = !ready && paypalClickAttempts < MAX_AUTO_AUTOFILL_ATTEMPTS;
+  return {
+    required: true,
+    ready,
+    canRetry,
+    message: ready
+      ? '已点击 PayPal，支付表单已展开'
+      : canRetry
+        ? '已点击 PayPal，等待支付表单展开后再填写'
+        : '无法自动展开 PayPal，请手动点击 PayPal 后再点随机地址',
+  };
+}
+
+function findPaypalAccordionButton(): HTMLElement | null {
+  const exact = document.querySelector<HTMLElement>('button[data-testid="paypal-accordion-item-button"]');
+  if (exact) {
+    return exact;
+  }
+
   const paypalRadio = document.querySelector<HTMLInputElement>('#payment-method-accordion-item-title-paypal');
-  if (paypalRadio?.checked) {
-    return true;
+  if (paypalRadio) {
+    const target = findPaypalRadioClickTarget(paypalRadio);
+    if (target) {
+      return target;
+    }
   }
 
   for (const selector of PAYPAL_SELECTORS) {
@@ -240,20 +421,96 @@ function selectPaypalIfPresent(): boolean {
     if (!element || !isVisible(element)) {
       continue;
     }
-    clickElement(element);
-    return true;
+    return element;
   }
 
   const textMatch = Array.from(document.querySelectorAll<HTMLElement>('button, label, [role="button"], [role="radio"], [data-testid], div'))
     .filter(isVisible)
     .find((element) => normalizedText(element.innerText || element.textContent).includes('paypal'));
 
-  if (textMatch) {
-    clickElement(textMatch);
-    return true;
+  return textMatch || null;
+}
+
+function findPaypalRadioClickTarget(radio: HTMLInputElement): HTMLElement | null {
+  const explicitLabel = document.querySelector<HTMLElement>('label[for="payment-method-accordion-item-title-paypal"]');
+  if (explicitLabel && isVisible(explicitLabel)) {
+    return explicitLabel;
   }
 
+  const candidates = [
+    radio.closest<HTMLElement>('label'),
+    radio.closest<HTMLElement>('button'),
+    radio.closest<HTMLElement>('[role="button"]'),
+    radio.closest<HTMLElement>('[role="radio"]'),
+    radio.closest<HTMLElement>('[data-testid]'),
+    radio.closest<HTMLElement>('.AccordionButton'),
+    radio.closest<HTMLElement>('.paypal-accordion-item-cover'),
+    radio.closest<HTMLElement>('.AccordionItemHeader--clickable'),
+    radio.closest<HTMLElement>('.AccordionItemCover'),
+    radio.closest<HTMLElement>('.AccordionItemHeader-content'),
+    radio.closest<HTMLElement>('.PaymentMethodFormAccordionItemTitle'),
+    radio.closest<HTMLElement>('.PaymentMethodFormAccordionItem'),
+    radio.parentElement,
+    radio,
+  ];
+
+  return candidates.find((element): element is HTMLElement => Boolean(element && isVisible(element))) || null;
+}
+
+function isPaypalPaymentMethodReady(): boolean {
+  const paypalRadio = document.querySelector<HTMLInputElement>('#payment-method-accordion-item-title-paypal');
+  const selectedByRadio = Boolean(paypalRadio?.checked || paypalRadio?.getAttribute('aria-checked') === 'true');
+  const selectedByClass = Boolean(document.querySelector('.paypal-accordion-item.PaymentMethodFormAccordionItem--selected'));
+  return selectedByRadio || selectedByClass;
+}
+
+function clickPaypalPaymentMethod(primaryTarget: HTMLElement): void {
+  const target = getPaypalClickTargets(primaryTarget)[0];
+  if (target) {
+    clickElement(target);
+  }
+}
+
+function getPaypalClickTargets(primaryTarget: HTMLElement): HTMLElement[] {
+  const radio = document.querySelector<HTMLInputElement>('#payment-method-accordion-item-title-paypal');
+  const exact = document.querySelector<HTMLElement>('button[data-testid="paypal-accordion-item-button"]');
+  return [
+    exact,
+    primaryTarget,
+    radio,
+    radio ? findPaypalRadioClickTarget(radio) : null,
+    document.querySelector<HTMLElement>('.paypal-accordion-item-cover'),
+    document.querySelector<HTMLElement>('.paypal-accordion-item .AccordionItemHeader--clickable'),
+    document.querySelector<HTMLElement>('.paypal-accordion-item .AccordionItemCover'),
+  ].filter((element, index, list): element is HTMLElement => Boolean(element && list.indexOf(element) === index));
+}
+
+async function waitForPaypalPaymentMethodReady(timeoutMs: number): Promise<boolean> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt <= timeoutMs) {
+    if (isPaypalPaymentMethodReady()) {
+      await delay(350);
+      return true;
+    }
+    await delay(120);
+  }
   return false;
+}
+
+function hasVisibleBillingFields(): boolean {
+  const selectors = [
+    '#billingName',
+    '#billingCountry',
+    '#billingAddressLine1',
+    '#billingLocality',
+    '#billingPostalCode',
+    'input[autocomplete="billing address-line1"]',
+    'input[autocomplete="billing postal-code"]',
+  ];
+  return selectors.some((selector) => {
+    const element = document.querySelector(selector);
+    return Boolean(element && isVisible(element));
+  });
 }
 
 function fillInput(selector: string, value: string, overwrite: boolean): number {
@@ -367,6 +624,384 @@ function checkoutContainsAddressValues(address: AddressProfile): boolean {
   return matched >= Math.min(3, expectedValues.length);
 }
 
+async function trySubmitZeroAmountCheckout(addressKey: string): Promise<PaymentSubmitResult> {
+  if (!isLiveCheckoutSessionPage()) {
+    return { message: '', canRetry: false, submitted: false, requiresSubmit: false };
+  }
+
+  const amount = await waitForCheckoutAmountReady(6_000);
+  if (!amount.found) {
+    return { message: '未找到可识别的应付金额，等待金额区域重新渲染后重试', canRetry: true, submitted: false, requiresSubmit: true };
+  }
+  if (!amount.isZero) {
+    return { message: `当前应付金额不是 0（${amount.text}），未点击订阅`, canRetry: false, submitted: false, requiresSubmit: true };
+  }
+
+  const key = `${location.href}|${addressKey}|${amount.text}`;
+  if (zeroAmountSubmitKey === key) {
+    return { message: '0 元订单已点击过订阅，跳过重复点击', canRetry: false, submitted: true, requiresSubmit: true };
+  }
+
+  const submitButton = await waitForZeroAmountSubmitButton(10_000);
+  if (!submitButton) {
+    return { message: `检测到 ${amount.text}，但订阅按钮尚未完全可点击`, canRetry: true, submitted: false, requiresSubmit: true };
+  }
+
+  zeroAmountSubmitKey = key;
+  clickElement(submitButton);
+  const paymentError = await waitForPaymentError(3500);
+  if (paymentError) {
+    zeroAmountSubmitKey = '';
+    return {
+      message: `检测到 ${amount.text}，已点击订阅，但支付页返回错误：${paymentError}`,
+      canRetry: isRetryablePaymentError(paymentError),
+      submitted: false,
+      requiresSubmit: true,
+      paymentError,
+    };
+  }
+  return { message: `检测到 ${amount.text}，已点击订阅`, canRetry: false, submitted: true, requiresSubmit: true };
+}
+
+function isPaymentSubmitComplete(result: PaymentSubmitResult): boolean {
+  if (result.canRetry) {
+    return false;
+  }
+  if (result.requiresSubmit && !result.submitted) {
+    return false;
+  }
+  return true;
+}
+
+function isLiveCheckoutSessionPage(): boolean {
+  return location.hostname === 'pay.openai.com' && location.pathname.startsWith('/c/pay/cs_live_');
+}
+
+function currentPaymentPageData(pageKind: string): Record<string, unknown> {
+  const amount = findCheckoutAmount();
+  return {
+    pageKind,
+    url: location.href,
+    readyState: document.readyState,
+    amountFound: amount.found,
+    amountText: amount.text,
+    paypalReady: isPaypalPaymentMethodReady(),
+    paypalButtonFound: Boolean(findPaypalAccordionButton()),
+    submitButtonFound: Boolean(findZeroAmountSubmitButton()),
+  };
+}
+
+function findCheckoutAmount(): { found: boolean; isZero: boolean; text: string } {
+  const amounts = findVisibleCurrencyAmounts();
+  if (amounts.length === 0) {
+    return { found: false, isZero: false, text: '' };
+  }
+
+  const preferred = findUsableCheckoutAmountCandidate(amounts);
+  if (!preferred) {
+    return { found: false, isZero: false, text: '' };
+  }
+
+  return {
+    found: true,
+    isZero: preferred.minorUnits === 0,
+    text: preferred.text,
+  };
+}
+
+async function waitForCheckoutAmountReady(timeoutMs: number): Promise<{ found: boolean; isZero: boolean; text: string }> {
+  const startedAt = Date.now();
+  let last = findCheckoutAmount();
+  while (Date.now() - startedAt <= timeoutMs) {
+    if (last.found) {
+      return last;
+    }
+    await delay(180);
+    last = findCheckoutAmount();
+  }
+  return last;
+}
+
+function findVisibleCurrencyAmounts(): CheckoutAmountCandidate[] {
+  const elements = uniqueElements([
+    ...Array.from(document.querySelectorAll<HTMLElement>('.CurrencyAmount')),
+    ...Array.from(document.querySelectorAll<HTMLElement>('#OrderDetails-TotalAmount span')),
+    ...Array.from(document.querySelectorAll<HTMLElement>('[id*="OrderDetails-TotalAmount"] span')),
+  ]).filter(isVisible);
+  const parsed = elements
+    .map((element) => {
+      const text = (element.textContent || '').trim();
+      const minorUnits = parseCurrencyMinorUnits(text);
+      const role = checkoutAmountRole(element);
+      return minorUnits === null
+        ? null
+        : {
+          element,
+          text,
+          minorUnits,
+          priority: currencyAmountPriority(element, role),
+          role,
+        };
+    })
+    .filter((item): item is CheckoutAmountCandidate => Boolean(item));
+  return parsed;
+}
+
+function findUsableCheckoutAmountCandidate(amounts: CheckoutAmountCandidate[]): CheckoutAmountCandidate | null {
+  const sorted = [...amounts].sort(compareCheckoutAmountCandidates);
+  const due = sorted.find((item) => item.role === 'due');
+  if (due) {
+    return due;
+  }
+
+  const zeroNonPlan = sorted.find((item) => item.role !== 'plan' && item.minorUnits === 0);
+  if (zeroNonPlan) {
+    return zeroNonPlan;
+  }
+
+  const strongUnknown = sorted.find((item) => item.role === 'unknown' && item.priority >= 20);
+  return strongUnknown || null;
+}
+
+function compareCheckoutAmountCandidates(a: CheckoutAmountCandidate, b: CheckoutAmountCandidate): number {
+  const roleWeight: Record<CheckoutAmountRole, number> = {
+    due: 3,
+    unknown: 2,
+    plan: 1,
+  };
+  return roleWeight[b.role] - roleWeight[a.role] ||
+    b.priority - a.priority ||
+    Number(b.minorUnits === 0) - Number(a.minorUnits === 0);
+}
+
+function checkoutAmountRole(element: HTMLElement): CheckoutAmountRole {
+  if (element.closest('#OrderDetails-TotalAmount, [id*="OrderDetails-TotalAmount"], [id*="TotalAmount"]')) {
+    return 'due';
+  }
+
+  const structuralMarker = collectAncestorStructuralMarkers(element, 7);
+  if (hasDueAmountMarker(structuralMarker)) {
+    return 'due';
+  }
+
+  const context = amountNearbyText(element);
+  if (hasDueAmountMarker(context)) {
+    return 'due';
+  }
+  if (hasPlanAmountMarker(context)) {
+    return 'plan';
+  }
+  return 'unknown';
+}
+
+function currencyAmountPriority(element: HTMLElement, role: CheckoutAmountRole): number {
+  let priority = role === 'due' ? 80 : role === 'plan' ? -40 : 0;
+  let current: HTMLElement | null = element;
+  for (let depth = 0; current && depth < 6; depth += 1) {
+    const marker = normalizedText([
+      current.id,
+      current.className,
+      current.getAttribute('data-testid'),
+      current.getAttribute('aria-label'),
+    ].join(' '));
+    if (
+      marker.includes('ordertotal') ||
+      marker.includes('totalamount') ||
+      marker.includes('orderdetails-totalamount') ||
+      marker.includes('total due') ||
+      marker.includes('due today') ||
+      marker.includes('合计') ||
+      marker.includes('总计') ||
+      marker.includes('今天')
+    ) {
+      priority = Math.max(priority, 100);
+    } else if (marker.includes('total') || marker.includes('amount') || marker.includes('应付')) {
+      priority = Math.max(priority, 40);
+    }
+    current = current.parentElement;
+  }
+
+  const nearbyText = amountNearbyText(element);
+  if (hasDueAmountMarker(nearbyText)) {
+    priority = Math.max(priority, 90);
+  }
+  if (hasPlanAmountMarker(nearbyText)) {
+    priority -= 60;
+  }
+
+  return priority;
+}
+
+function amountNearbyText(element: HTMLElement): string {
+  const parent = element.parentElement;
+  const row = element.closest<HTMLElement>(
+    'tr, li, [role="row"], [id*="Total"], [id*="Amount"], [data-testid*="total"], [data-testid*="amount"], [class*="Total"], [class*="Amount"], .LineItem',
+  );
+  return normalizedText([
+    element.getAttribute('aria-label'),
+    parent?.previousElementSibling?.textContent,
+    parent?.nextElementSibling?.textContent,
+    compactElementText(parent),
+    compactElementText(parent?.parentElement || null),
+    row && row !== parent ? compactElementText(row) : '',
+  ].join(' '));
+}
+
+function compactElementText(element: Element | null): string {
+  const text = element?.textContent || '';
+  return text.length <= 220 ? text : '';
+}
+
+function collectAncestorStructuralMarkers(element: HTMLElement, maxDepth: number): string {
+  const parts: string[] = [];
+  let current: HTMLElement | null = element;
+  for (let depth = 0; current && depth < maxDepth; depth += 1) {
+    parts.push([
+      current.id,
+      current.className,
+      current.getAttribute('data-testid'),
+      current.getAttribute('aria-label'),
+    ].join(' '));
+    current = current.parentElement;
+  }
+  return normalizedText(parts.join(' '));
+}
+
+function hasDueAmountMarker(text: string): boolean {
+  return [
+    'ordertotal',
+    'totalamount',
+    'orderdetails-totalamount',
+    'total due',
+    'due today',
+    'amount due',
+    'today',
+    '合计',
+    '总计',
+    '应付',
+    '今天',
+  ].some((needle) => text.includes(needle));
+}
+
+function hasPlanAmountMarker(text: string): boolean {
+  return [
+    'plus',
+    'team',
+    'workspace',
+    'plan',
+    'monthly',
+    'per month',
+    '/month',
+    'billed',
+    'seat',
+    'subscription',
+    '套餐',
+    '每月',
+    '/月',
+    '月费',
+    '席位',
+    '订阅计划',
+  ].some((needle) => text.includes(needle));
+}
+
+function uniqueElements<T extends Element>(elements: T[]): T[] {
+  return elements.filter((element, index, list) => list.indexOf(element) === index);
+}
+
+function parseCurrencyMinorUnits(text: string): number | null {
+  const match = text.replace(/\s+/g, '').match(/-?\d[\d,]*(?:\.\d+)?/);
+  if (!match) {
+    return null;
+  }
+  const amount = Number(match[0].replace(/,/g, ''));
+  if (!Number.isFinite(amount)) {
+    return null;
+  }
+  return Math.round(amount * 100);
+}
+
+async function waitForZeroAmountSubmitButton(timeoutMs: number): Promise<HTMLButtonElement | null> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt <= timeoutMs) {
+    const button = findZeroAmountSubmitButton();
+    if (button) {
+      return button;
+    }
+    await delay(120);
+  }
+  return null;
+}
+
+function findZeroAmountSubmitButton(): HTMLButtonElement | null {
+  const exact = document.querySelector<HTMLButtonElement>(ZERO_AMOUNT_SUBMIT_BUTTON_SELECTOR);
+  if (isClickableButton(exact)) {
+    return exact;
+  }
+  return Array.from(document.querySelectorAll<HTMLButtonElement>('button[type="submit"], button.SubmitButton'))
+    .filter(isClickableButton)
+    .find((button) => {
+      const text = normalizedText(button.textContent);
+      return text.includes('订阅') || text.includes('subscribe');
+    }) || null;
+}
+
+async function waitForPaymentError(timeoutMs: number): Promise<string> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt <= timeoutMs) {
+    const message = findPaymentErrorMessage();
+    if (message) {
+      return message;
+    }
+    await delay(180);
+  }
+  return '';
+}
+
+function findPaymentErrorMessage(): string {
+  const selectors = [
+    '.ConfirmPaymentButton-Error',
+    '.Notice--red',
+    '[role="alert"]',
+    '[data-testid*="error"]',
+    '.PaymentForm-confirmPaymentContainer .Notice',
+  ];
+  for (const selector of selectors) {
+    const elements = Array.from(document.querySelectorAll<HTMLElement>(selector)).filter(isVisible);
+    for (const element of elements) {
+      const text = normalizedText(element.textContent);
+      if (text) {
+        return text;
+      }
+    }
+  }
+  return '';
+}
+
+function isRetryablePaymentError(message: string): boolean {
+  const normalized = normalizedText(message);
+  return [
+    'could not calculate tax',
+    'calculate tax',
+    'invalid zip',
+    'invalid postal',
+    'zip code',
+    'postal code',
+    'address',
+    'billing',
+  ].some((needle) => normalized.includes(needle));
+}
+
+function isClickableButton(button: HTMLButtonElement | null): button is HTMLButtonElement {
+  return Boolean(button &&
+    isVisible(button) &&
+    !button.disabled &&
+    button.getAttribute('aria-disabled') !== 'true' &&
+    button.dataset.disabled !== 'true' &&
+    !button.classList.contains('SubmitButton--incomplete') &&
+    !button.classList.contains('SubmitButton--processing') &&
+    window.getComputedStyle(button).pointerEvents !== 'none');
+}
+
 function checkVisibleTermsCheckboxes(): number {
   let checked = 0;
   const checkboxes = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'))
@@ -404,6 +1039,9 @@ function emitChange(element: HTMLElement): void {
 
 function clickElement(element: HTMLElement): void {
   element.scrollIntoView({ block: 'center', inline: 'center' });
+  const rect = element.getBoundingClientRect();
+  const clientX = rect.left + Math.max(1, rect.width / 2);
+  const clientY = rect.top + Math.max(1, rect.height / 2);
   for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
     const EventCtor = type.startsWith('pointer') ? PointerEvent : MouseEvent;
     element.dispatchEvent(new EventCtor(type, {
@@ -412,8 +1050,11 @@ function clickElement(element: HTMLElement): void {
       composed: true,
       button: 0,
       buttons: type.endsWith('down') ? 1 : 0,
+      clientX,
+      clientY,
       pointerId: 1,
       pointerType: 'mouse',
+      view: window,
     }));
   }
   element.click();
@@ -597,6 +1238,8 @@ function resetAutofillStateForScopeChange(): void {
   pageAddressScope = '';
   filledAddressKey = '';
   autoAttemptCount = 0;
+  paypalClickAttempts = 0;
+  zeroAmountSubmitKey = '';
   autoAutofillFinished = false;
 }
 
@@ -630,6 +1273,23 @@ function scheduleAutofill(delayMs: number): void {
     scheduledTimer = null;
     void runAutofill();
   }, delayMs);
+}
+
+async function isAutomationRunActive(): Promise<boolean> {
+  try {
+    const state = await loadAutomationState();
+    return Boolean(state.run.running);
+  } catch {
+    return false;
+  }
+}
+
+async function waitForPayOpenAiFillIdle(timeoutMs: number): Promise<boolean> {
+  const startedAt = Date.now();
+  while (fillInFlight && Date.now() - startedAt <= timeoutMs) {
+    await delay(120);
+  }
+  return !fillInFlight;
 }
 
 function cancelScheduledAutofill(): void {
@@ -702,6 +1362,10 @@ function delay(ms: number): Promise<void> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function appendMessage(message: string, extra: string): string {
+  return extra ? `${message}；${extra}` : message;
 }
 
 function isRandomAddressResponse(value: unknown): value is RandomAddressResponse {

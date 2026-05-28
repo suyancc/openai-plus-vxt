@@ -4,9 +4,11 @@ import type {
   CheckoutPlanName,
   CheckoutRegion,
   CheckoutUiMode,
+  CheckoutExtractMode,
 } from './types';
 
 const CHECKOUT_URL = 'https://chatgpt.com/backend-api/payments/checkout';
+const SERVER_CHECKOUT_RAW_URL = 'http://64.176.60.3:8788/checkout/raw';
 const ACCESS_TOKEN_RE = /"accessToken"\s*:\s*"([^"]+)"/;
 const ACCESS_TOKEN_LOOSE_RE = /"accessToken"\s*:\s*"?([A-Za-z0-9_.-]+)/;
 const JWT_RE = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/;
@@ -21,11 +23,13 @@ const REGION_BILLING: Record<CheckoutRegion, { country: string; currency: string
 
 export const DEFAULT_CHECKOUT_OPTIONS: CheckoutOptions = {
   planName: 'chatgptplusplan',
-  uiMode: 'custom',
+  uiMode: 'hosted',
   region: 'US',
   workspaceName: 'MyTeam',
   seatQuantity: 5,
 };
+
+export const DEFAULT_CHECKOUT_EXTRACT_MODE: CheckoutExtractMode = 'local';
 
 export function extractAccessToken(raw: string): string {
   const text = String(raw || '').trim();
@@ -63,7 +67,21 @@ export function normalizeCheckoutOptions(value: unknown): CheckoutOptions {
   };
 }
 
-export async function createCheckoutLink(raw: string, optionsInput: unknown): Promise<CheckoutLinkResponse> {
+export function normalizeCheckoutExtractMode(value: unknown): CheckoutExtractMode {
+  return value === 'server' ? 'server' : DEFAULT_CHECKOUT_EXTRACT_MODE;
+}
+
+export async function createCheckoutLink(
+  raw: string,
+  optionsInput: unknown,
+): Promise<CheckoutLinkResponse> {
+  return createCheckoutLinkDirect(raw, optionsInput);
+}
+
+export async function createCheckoutLinkDirect(
+  raw: string,
+  optionsInput: unknown,
+): Promise<CheckoutLinkResponse> {
   let token: string;
   let checkoutOptions: CheckoutOptions;
   let payload: Record<string, unknown>;
@@ -128,6 +146,59 @@ export async function createCheckoutLink(raw: string, optionsInput: unknown): Pr
   };
 }
 
+export async function createCheckoutLinkFromServer(raw: string): Promise<CheckoutLinkResponse> {
+  let token: string;
+  try {
+    token = extractAccessToken(raw);
+  } catch (error) {
+    return fail(errorMessage(error));
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(SERVER_CHECKOUT_RAW_URL, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ token }),
+      cache: 'no-store',
+    });
+  } catch (error) {
+    return fail(`服务器 API 请求失败：${String(error)}`);
+  }
+
+  const text = await response.text();
+  const data = parseJsonResponse(text);
+  if (!response.ok) {
+    return fail(`服务器 API HTTP ${response.status}：${extractResponseError(data, text)}`);
+  }
+
+  if (!isRecord(data)) {
+    return fail('服务器 API 响应不是 JSON 对象');
+  }
+
+  const link = selectServerOutputLink(data);
+  if (!link) {
+    return fail(`服务器 API 未返回订阅链接，响应字段：${Object.keys(data).slice(0, 12).join(', ') || '空'}`);
+  }
+
+  return {
+    ok: true,
+    message: '服务器 API 生成成功',
+    url: link,
+    link,
+    longUrl: stringValue(data.longUrl) || stringValue(data.long_url) || stringValue(data.providerUrl) || stringValue(data.provider_url),
+    shortUrl: stringValue(data.shortUrl) || stringValue(data.short_url) || stringValue(data.canonicalUrl) || stringValue(data.canonical_url),
+    providerUrl: stringValue(data.providerUrl) || stringValue(data.provider_url) || stringValue(data.stripe_hosted_url) || stringValue(data.checkout_url),
+    canonicalUrl: stringValue(data.canonicalUrl) || stringValue(data.canonical_url),
+    raw: data,
+    source: 'checkout_server_api',
+    responseKeys: Object.keys(data).slice(0, 20),
+  };
+}
+
 function buildCheckoutPayload(options: CheckoutOptions): Record<string, unknown> {
   const isPlus = options.planName === 'chatgptplusplan';
   const billingDetails = billingDetailsForRegion(options.region);
@@ -160,7 +231,9 @@ function normalizePlanName(value: unknown): CheckoutPlanName {
 }
 
 function normalizeUiMode(value: unknown): CheckoutUiMode {
-  return value === 'hosted' ? 'hosted' : 'custom';
+  return value === 'custom' || value === 'hosted'
+    ? value
+    : DEFAULT_CHECKOUT_OPTIONS.uiMode;
 }
 
 function normalizeRegion(value: unknown): CheckoutRegion {
@@ -276,6 +349,34 @@ function selectOutputLink(
   return result.canonicalUrl || result.providerUrl;
 }
 
+function selectServerOutputLink(data: Record<string, unknown>): string {
+  for (const key of [
+    'link',
+    'url',
+    'checkout_url',
+    'stripe_hosted_url',
+    'providerUrl',
+    'provider_url',
+    'longUrl',
+    'long_url',
+    'shortUrl',
+    'short_url',
+    'canonicalUrl',
+    'canonical_url',
+  ]) {
+    const value = stringValue(data[key]);
+    if (value) {
+      return value;
+    }
+  }
+
+  const nested = data.data;
+  if (isRecord(nested)) {
+    return selectServerOutputLink(nested);
+  }
+  return '';
+}
+
 function findCheckoutSession(data: Record<string, unknown>, providerUrl: string): string {
   const direct = stringValue(data.checkout_session_id) || stringValue(data.session_id);
   if (direct) {
@@ -349,6 +450,13 @@ function extractResponseError(data: unknown, text: string): string {
   }
   if (!message) {
     message = shorten(text || '请求失败');
+  }
+  return normalizeCheckoutError(message);
+}
+
+function normalizeCheckoutError(message: string): string {
+  if (/user is already paid/i.test(message)) {
+    return '此账号没有试用资格';
   }
   return explainStripeCurrencyError(message);
 }

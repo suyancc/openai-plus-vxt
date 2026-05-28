@@ -1,6 +1,7 @@
 import { checkLatestVersion } from './github';
 import { ignoreReleaseVersion } from './state';
 import type { ReleaseVersionInfo, VersionCheckResult } from './types';
+import { flashButtonLabel, setButtonPending } from '../../app/button-feedback';
 
 export interface VersionNoticeHandle {
   element: HTMLElement;
@@ -44,12 +45,14 @@ export function createVersionNotice(): VersionNoticeHandle {
   downloadButton.addEventListener('click', () => {
     if (latest?.downloadUrl) {
       window.open(latest.downloadUrl, '_blank', 'noopener,noreferrer');
+      flashButtonLabel(downloadButton, '已打开');
     }
   });
 
   releaseButton.addEventListener('click', () => {
     if (latest?.htmlUrl) {
       window.open(latest.htmlUrl, '_blank', 'noopener,noreferrer');
+      flashButtonLabel(releaseButton, '已打开');
     }
   });
 
@@ -57,8 +60,13 @@ export function createVersionNotice(): VersionNoticeHandle {
     if (!latest) {
       return;
     }
-    await ignoreReleaseVersion(latest.version);
-    notice.hidden = true;
+    const restoreButton = setButtonPending(ignoreButton, '处理中...');
+    try {
+      await ignoreReleaseVersion(latest.version);
+      notice.hidden = true;
+    } finally {
+      restoreButton();
+    }
   });
 
   const update = async (force = false) => {

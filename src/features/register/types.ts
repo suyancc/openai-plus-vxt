@@ -3,9 +3,10 @@ import type { ActionResult } from '../../app/types';
 export type { ActionResult } from '../../app/types';
 
 export interface PageState {
-  kind: 'login' | 'email-verification' | 'about-you' | 'unknown';
+  kind: 'login' | 'password' | 'email-verification' | 'about-you' | 'unknown';
   label: string;
   canFillEmail: boolean;
+  canFillPassword?: boolean;
   canFillOtp: boolean;
   canFillProfile: boolean;
 }
@@ -57,6 +58,7 @@ export interface OutlookOtpMessage {
   timeoutMs?: number;
   intervalMs?: number;
   since?: number;
+  ignoreCodes?: string[];
 }
 
 export interface OutlookOtpResponse {

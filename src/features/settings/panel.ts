@@ -1,27 +1,18 @@
 import { checkLatestVersion } from '../version-check/github';
 import { loadAddressAutofillSettings, saveAddressAutofillSettings } from './state';
+import type { ClearDomainCookiesResponse, CookieClearTarget } from './types';
+import type { FeaturePanelHandle } from '../../app/types';
+import { flashButtonLabel, setButtonPending } from '../../app/button-feedback';
 
 const TG_GROUP_URL = 'https://t.me/fuck_open';
 
-export interface SettingsDialogOptions {
+export interface SettingsPanelOptions {
   onVersionChecked?: () => Promise<void> | void;
 }
 
-export interface SettingsDialogHandle {
-  element: HTMLElement;
-  open(): void;
-  update(): Promise<void>;
-}
-
-export function createSettingsDialog(options: SettingsDialogOptions = {}): SettingsDialogHandle {
-  const overlay = document.createElement('div');
-  overlay.className = 'opx-settings-overlay';
-  overlay.hidden = true;
-
+export function createSettingsPanel(container: HTMLElement, options: SettingsPanelOptions = {}): FeaturePanelHandle {
   const dialog = document.createElement('section');
-  dialog.className = 'opx-settings-dialog';
-  dialog.setAttribute('role', 'dialog');
-  dialog.setAttribute('aria-modal', 'true');
+  dialog.className = 'opx-settings-panel';
   dialog.setAttribute('aria-label', '插件设置');
 
   const header = document.createElement('div');
@@ -33,9 +24,8 @@ export function createSettingsDialog(options: SettingsDialogOptions = {}): Setti
   const version = document.createElement('span');
   version.className = 'opx-version-badge';
   version.textContent = `v${browser.runtime.getManifest().version}`;
-  const closeButton = createIconButton('×', '关闭设置');
   titleGroup.append(title, version);
-  header.append(titleGroup, closeButton);
+  header.append(titleGroup);
 
   const payOpenAiCheckbox = document.createElement('input');
   payOpenAiCheckbox.type = 'checkbox';
@@ -56,6 +46,26 @@ export function createSettingsDialog(options: SettingsDialogOptions = {}): Setti
     '用于 paypal.com/checkoutweb/signup 页面，填写国家、邮箱、卡资料、姓名、地址和密码提示。',
   );
 
+  const cookieSection = document.createElement('div');
+  cookieSection.className = 'opx-settings-section';
+  const cookieTitle = document.createElement('div');
+  cookieTitle.className = 'opx-settings-section-title';
+  cookieTitle.textContent = 'Cookie 清理';
+
+  const cookieActions = document.createElement('div');
+  cookieActions.className = 'opx-settings-cookie-actions';
+
+  const clearPaypalCookiesButton = createCookieClearButton('清除 PayPal Cookie');
+  clearPaypalCookiesButton.title = '清除 paypal.com 及其子域名下的 cookie';
+  const clearChatGptCookiesButton = createCookieClearButton('清除 ChatGPT Cookie');
+  clearChatGptCookiesButton.title = '清除 chatgpt.com、openai.com 及其子域名下的 cookie';
+  cookieActions.append(clearPaypalCookiesButton, clearChatGptCookiesButton);
+
+  const cookieHint = document.createElement('div');
+  cookieHint.className = 'opx-setting-description opx-cookie-description';
+  cookieHint.textContent = '用于快速退出相关站点登录态。只清除对应域名下的浏览器 cookie。';
+  cookieSection.append(cookieTitle, cookieActions, cookieHint);
+
   const checkUpdateButton = document.createElement('button');
   checkUpdateButton.className = 'opx-external-link-button';
   checkUpdateButton.type = 'button';
@@ -68,22 +78,11 @@ export function createSettingsDialog(options: SettingsDialogOptions = {}): Setti
   tgGroupButton.title = '打开 TG 群组';
   tgGroupButton.append(createTelegramIcon(), document.createTextNode('TG 群组：t.me/fuck_open'));
 
-  const hint = document.createElement('div');
-  hint.className = 'opx-hint';
-  hint.textContent = '国家、城市和获取地址在“地址”tab 中操作。';
-
   const status = document.createElement('div');
   status.className = 'opx-status';
 
-  dialog.append(header, payOpenAiItem, payPalSignupItem, checkUpdateButton, tgGroupButton, hint, status);
-  overlay.append(dialog);
-
-  closeButton.addEventListener('click', close);
-  overlay.addEventListener('click', (event) => {
-    if (event.target === overlay) {
-      close();
-    }
-  });
+  dialog.append(header, payOpenAiItem, payPalSignupItem, cookieSection, checkUpdateButton, tgGroupButton, status);
+  container.append(dialog);
 
   payOpenAiCheckbox.addEventListener('change', async () => {
     await saveAddressAutofillSettings({ payOpenAiEnabled: payOpenAiCheckbox.checked });
@@ -95,9 +94,16 @@ export function createSettingsDialog(options: SettingsDialogOptions = {}): Setti
   });
   tgGroupButton.addEventListener('click', () => {
     window.open(TG_GROUP_URL, '_blank', 'noopener,noreferrer');
+    flashButtonLabel(tgGroupButton, '已打开');
+  });
+  clearPaypalCookiesButton.addEventListener('click', () => {
+    void clearCookies('paypal', clearPaypalCookiesButton);
+  });
+  clearChatGptCookiesButton.addEventListener('click', () => {
+    void clearCookies('chatgpt', clearChatGptCookiesButton);
   });
   checkUpdateButton.addEventListener('click', async () => {
-    checkUpdateButton.disabled = true;
+    const restoreButton = setButtonPending(checkUpdateButton, '检测中...');
     setStatus(status, '正在检测 GitHub 最新版本...', 'pending');
     try {
       const result = await checkLatestVersion(true);
@@ -112,7 +118,7 @@ export function createSettingsDialog(options: SettingsDialogOptions = {}): Setti
     } catch (error) {
       setStatus(status, error instanceof Error ? error.message : String(error), 'error');
     } finally {
-      checkUpdateButton.disabled = false;
+      restoreButton();
     }
   });
 
@@ -121,20 +127,40 @@ export function createSettingsDialog(options: SettingsDialogOptions = {}): Setti
     payOpenAiCheckbox.checked = settings.payOpenAiEnabled;
     payPalSignupCheckbox.checked = settings.payPalSignupEnabled;
     const enabledCount = Number(settings.payOpenAiEnabled) + Number(settings.payPalSignupEnabled);
-    setStatus(status, enabledCount > 0 ? `已开启 ${enabledCount} 项自动填写` : '自动填写未开启', enabledCount > 0 ? 'ok' : 'pending');
+    if (!status.textContent || status.dataset.source === 'summary') {
+      setStatus(
+        status,
+        enabledCount > 0 ? `已开启 ${enabledCount} 项自动填写` : '自动填写未开启',
+        enabledCount > 0 ? 'ok' : 'pending',
+        'summary',
+      );
+    }
   };
 
   return {
-    element: overlay,
-    open: () => {
-      overlay.hidden = false;
-      void update();
-    },
     update,
+    onShow: update,
   };
 
-  function close(): void {
-    overlay.hidden = true;
+  async function clearCookies(target: CookieClearTarget, button: HTMLButtonElement): Promise<void> {
+    const label = target === 'paypal' ? 'PayPal' : 'ChatGPT';
+    const restoreButton = setButtonPending(button, '清除中...');
+    setStatus(status, `正在清除 ${label} Cookie...`, 'pending');
+    try {
+      const response = await browser.runtime.sendMessage({
+        type: 'opx:clear-domain-cookies',
+        target,
+      }) as ClearDomainCookiesResponse;
+      if (!response?.ok) {
+        setStatus(status, response?.message || `${label} Cookie 清除失败`, 'error');
+        return;
+      }
+      setStatus(status, response.message, 'ok');
+    } catch (error) {
+      setStatus(status, error instanceof Error ? error.message : String(error), 'error');
+    } finally {
+      restoreButton();
+    }
   }
 }
 
@@ -169,17 +195,21 @@ function createTelegramIcon(): SVGSVGElement {
   return svg;
 }
 
-function createIconButton(label: string, title: string): HTMLButtonElement {
+function createCookieClearButton(label: string): HTMLButtonElement {
   const button = document.createElement('button');
-  button.className = 'opx-icon-button';
+  button.className = 'opx-cookie-clear-button';
   button.type = 'button';
   button.textContent = label;
-  button.title = title;
-  button.setAttribute('aria-label', title);
   return button;
 }
 
-function setStatus(element: HTMLElement, message: string, type: 'pending' | 'ok' | 'error'): void {
+function setStatus(
+  element: HTMLElement,
+  message: string,
+  type: 'pending' | 'ok' | 'error',
+  source: 'action' | 'summary' = 'action',
+): void {
   element.textContent = message;
   element.dataset.type = type;
+  element.dataset.source = source;
 }

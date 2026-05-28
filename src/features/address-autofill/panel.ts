@@ -1,4 +1,8 @@
 import type { FeaturePanelHandle } from '../../app/types';
+import type { ActionResult } from '../../app/types';
+import { getActiveBrowserTab, isContentScriptUrl, sendActiveTabMessage } from '../../app/active-tab';
+import { withButtonPending } from '../../app/button-feedback';
+import { PAGE_ACTION } from '../../app/page-actions';
 import { loadAddressAutofillSettings, saveAddressAutofillSettings } from '../settings/state';
 import type { AddressAutofillSettings } from '../settings/types';
 import { ADDRESS_COUNTRY_OPTIONS } from './address-source';
@@ -55,7 +59,9 @@ export function createAddressPanel(container: HTMLElement): FeaturePanelHandle {
 
   countrySelect.addEventListener('change', () => void saveScopeSettings('国家已保存'));
   cityInput.addEventListener('change', () => void saveScopeSettings('城市已保存'));
-  fetchButton.addEventListener('click', () => void fetchAddress());
+  fetchButton.addEventListener('click', () => {
+    void withButtonPending(fetchButton, '获取中...', fetchAddress);
+  });
 
   const update = async () => {
     const settings = await loadAddressAutofillSettings();
@@ -80,7 +86,6 @@ export function createAddressPanel(container: HTMLElement): FeaturePanelHandle {
   }
 
   async function fetchAddress(): Promise<void> {
-    fetchButton.disabled = true;
     setStatus(status, '正在获取随机地址...', 'pending');
     try {
       const response = await browser.runtime.sendMessage({
@@ -102,19 +107,27 @@ export function createAddressPanel(container: HTMLElement): FeaturePanelHandle {
       setStatus(status, autofillMessage ? `${response.message}；${autofillMessage}` : response.message, 'ok');
     } catch (error) {
       setStatus(status, `获取地址失败：${errorMessage(error)}`, 'error');
-    } finally {
-      fetchButton.disabled = false;
     }
   }
 
   async function fillCurrentPaymentPage(address: AddressProfile): Promise<string> {
+    if (isExtensionPage()) {
+      const tab = await getActiveBrowserTab();
+      if (!isContentScriptUrl(tab?.url)) {
+        return '';
+      }
+      const response = await sendActiveTabMessage<ActionResult>({
+        type: PAGE_ACTION.fillCurrentPaymentAddress,
+        address,
+      });
+      return response.message;
+    }
     if (location.hostname === 'pay.openai.com') {
       return (await fillPayOpenAiAddressNow(address)).message;
     }
-    if (location.hostname.endsWith('paypal.com')) {
-      return (await fillPaypalAddressNow(address, true, false)).message;
-    }
-    return '';
+    return location.hostname.endsWith('paypal.com')
+      ? (await fillPaypalAddressNow(address, true, false)).message
+      : '';
   }
 
   function renderSettings(settings: AddressAutofillSettings): void {
@@ -205,6 +218,10 @@ export function createAddressPanel(container: HTMLElement): FeaturePanelHandle {
     wrapper.append(title, body);
     return wrapper;
   }
+}
+
+function isExtensionPage(): boolean {
+  return location.protocol === 'chrome-extension:' || location.protocol === 'moz-extension:';
 }
 
 function createExternalLink(label: string, href: string): HTMLAnchorElement {

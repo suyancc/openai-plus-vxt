@@ -1,6 +1,7 @@
 import { loadSmsRelayState, saveSmsRelayState } from '../../app/state';
 import type { FeaturePanelHandle } from '../../app/types';
 import { canUseExtensionApi } from '../../app/extension-context';
+import { setButtonPending } from '../../app/button-feedback';
 import { parseSmsRelayTargets } from './parser';
 import { fetchSmsRelayCode } from './poller';
 import type { SmsCodeRecord, SmsRelayState, SmsRelayTarget } from './types';
@@ -43,6 +44,7 @@ export function createSmsPanel(container: HTMLElement): FeaturePanelHandle {
 
   const status = document.createElement('div');
   status.className = 'opx-status';
+  status.dataset.toast = 'off';
 
   const runtimeById = new Map<string, TargetRuntime>();
   let currentState: SmsRelayState | null = null;
@@ -79,27 +81,45 @@ export function createSmsPanel(container: HTMLElement): FeaturePanelHandle {
   });
 
   saveButton.addEventListener('click', async () => {
-    if (pollingActive) {
-      await stopRelayPolling();
-      return;
+    const restoreButton = setButtonPending(saveButton, pollingActive ? '停止中...' : '启动中...');
+    try {
+      if (pollingActive) {
+        await stopRelayPolling();
+        return;
+      }
+      await startRelayPolling();
+    } finally {
+      restoreButton();
+      syncPollingUi();
     }
-    await startRelayPolling();
   });
 
   pollNowButton.addEventListener('click', async () => {
     if (pollingActive) {
       return;
     }
-    await persistInputNow();
-    renderTargetsFromInput();
-    await pollAllTargets();
+    const restoreButton = setButtonPending(pollNowButton, '获取中...');
+    try {
+      await persistInputNow();
+      renderTargetsFromInput();
+      await pollAllTargets();
+    } finally {
+      restoreButton();
+      syncPollingUi();
+    }
   });
 
   clearHistoryButton.addEventListener('click', async () => {
-    const next = await saveSmsRelayState({ history: [] });
-    currentState = next;
-    renderHistory(next.history);
-    setStatus(status, '验证码历史已清空，输入内容已保留。', 'ok');
+    const restoreButton = setButtonPending(clearHistoryButton, '清空中...');
+    try {
+      const next = await saveSmsRelayState({ history: [] });
+      currentState = next;
+      renderHistory(next.history);
+      setStatus(status, '验证码历史已清空，输入内容已保留。', 'ok');
+    } finally {
+      restoreButton();
+      syncPollingUi();
+    }
   });
 
   const update = async () => {

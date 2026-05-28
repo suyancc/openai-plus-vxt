@@ -41,6 +41,9 @@ const IGNORE_FIELD_NAMES = new Set([
 ]);
 const EMPTY_MESSAGE_PATTERN = /^(no\s*message|no\s*sms|empty|none|null|暂无|没有|未收到)$/i;
 const GENERIC_STATUS_PATTERN = /^(ok|success|successful|true|请求成功|成功)$/i;
+const SMS_CODE_CONTEXT_PATTERN = /paypal|paypaly|验证码|驗證碼|校验码|動態碼|动态码|code|verify|verification|security|otp|one[-\s]?time/i;
+const DATE_FIELD_CONTEXT_PATTERN = /(?:到期|过期|有效期|expire|expires|expired|expiration|date|time|时间)\s*[:：]?\s*$/i;
+const YEAR_PREFIX_PATTERN = /^(?:19|20)\d{2}$/;
 
 export interface ParsedSmsTargets {
   targets: SmsRelayTarget[];
@@ -95,13 +98,13 @@ export function extractSmsCode(message: string): string {
     return '';
   }
 
-  const matches = trimmed.match(new RegExp(`\\b\\d{${MIN_CODE_LENGTH},${MAX_CODE_LENGTH}}\\b`, 'g'));
-  if (matches?.[0]) {
-    return matches[0];
-  }
-
-  const looseMatches = trimmed.match(new RegExp(`\\d{${MIN_CODE_LENGTH},${MAX_CODE_LENGTH}}`, 'g'));
-  return preferLongerCode(looseMatches || []);
+  const best = collectSmsCodeCandidates(trimmed)
+    .map((candidate) => ({
+      ...candidate,
+      score: scoreSmsCodeCandidate(trimmed, candidate),
+    }))
+    .sort((left, right) => right.score - left.score)[0];
+  return best && best.score > 0 ? best.value : '';
 }
 
 export function extractSmsPayload(payload: unknown): { code: string; message: string } {
@@ -277,7 +280,81 @@ function scoreCandidate(candidate: MessageCandidate & { code: string }): number 
 }
 
 function hasSmsKeyword(value: string): boolean {
-  return /code|验证码|驗證碼|verify|verification|security|otp|paypal|openai|chatgpt/i.test(value);
+  return /code|验证码|驗證碼|verify|verification|security|otp|paypal|paypaly|openai|chatgpt/i.test(value);
+}
+
+interface SmsCodeCandidate {
+  value: string;
+  index: number;
+  end: number;
+}
+
+function collectSmsCodeCandidates(value: string): SmsCodeCandidate[] {
+  const candidates: SmsCodeCandidate[] = [];
+  const pattern = new RegExp(`\\d{${MIN_CODE_LENGTH},${MAX_CODE_LENGTH}}`, 'g');
+  for (const match of value.matchAll(pattern)) {
+    const code = match[0];
+    const index = match.index || 0;
+    const end = index + code.length;
+    if (isDigit(value[index - 1]) || isDigit(value[end])) {
+      continue;
+    }
+    candidates.push({ value: code, index, end });
+  }
+  return candidates;
+}
+
+function scoreSmsCodeCandidate(message: string, candidate: SmsCodeCandidate): number {
+  const before = message.slice(Math.max(0, candidate.index - 36), candidate.index);
+  const after = message.slice(candidate.end, Math.min(message.length, candidate.end + 36));
+  const near = `${before}${after}`;
+  let score = 0;
+
+  if (candidate.value.length === 6) {
+    score += 120;
+  } else if (candidate.value.length === 5) {
+    score += 70;
+  } else if (candidate.value.length === 4) {
+    score += 45;
+  } else {
+    score += 30;
+  }
+
+  const dateLike = isDateLikeCandidate(message, candidate);
+  if (SMS_CODE_CONTEXT_PATTERN.test(near) && !dateLike) {
+    score += 70;
+  } else if (SMS_CODE_CONTEXT_PATTERN.test(message) && !dateLike) {
+    score += 15;
+  }
+
+  if (dateLike) {
+    score -= 170;
+  }
+  if (YEAR_PREFIX_PATTERN.test(candidate.value)) {
+    score -= 35;
+  }
+
+  score -= Math.min(candidate.index / 1000, 5);
+  return score;
+}
+
+function isDateLikeCandidate(message: string, candidate: SmsCodeCandidate): boolean {
+  const before = message.slice(Math.max(0, candidate.index - 18), candidate.index);
+  const after = message.slice(candidate.end, Math.min(message.length, candidate.end + 18));
+  if (DATE_FIELD_CONTEXT_PATTERN.test(before)) {
+    return true;
+  }
+  if (YEAR_PREFIX_PATTERN.test(candidate.value) && /^[-/.年]\d{1,2}(?:[-/.月]\d{1,2})?/.test(after)) {
+    return true;
+  }
+  if (/[-/.年]\s*$/.test(before) && /^\d{1,2}(?:[-/.月]\d{1,2})?/.test(after)) {
+    return true;
+  }
+  return false;
+}
+
+function isDigit(value: string | undefined): boolean {
+  return Boolean(value && /\d/.test(value));
 }
 
 function isEmptyMessage(value: string): boolean {
@@ -319,13 +396,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeFieldName(key: string): string {
   return key.toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function preferLongerCode(values: string[]): string {
-  return values
-    .map((value) => value.trim())
-    .filter(Boolean)
-    .sort((left, right) => right.length - left.length)[0] || '';
 }
 
 function isHttpUrl(value: string): boolean {

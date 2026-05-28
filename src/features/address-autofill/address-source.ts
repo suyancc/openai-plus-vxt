@@ -245,7 +245,7 @@ function createAddressId(): string {
 }
 
 function randomName(): string {
-  return `${randomItem(FIRST_NAMES)}${randomItem(LAST_NAMES)}`;
+  return `${randomItem(FIRST_NAMES)} ${randomItem(LAST_NAMES)}`;
 }
 
 function randomDigits(length: number): string {

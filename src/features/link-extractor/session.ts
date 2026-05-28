@@ -47,6 +47,10 @@ function extractSessionInfo(data: Record<string, unknown>): ChatGptSessionInfo {
     email: stringValue(user.email),
     planType: stringValue(account.planType) || stringValue(account.plan_type),
     accessToken: stringValue(data.accessToken),
+    sessionToken: stringValue(data.sessionToken) || stringValue(data.session_token),
+    accountId: stringValue(account.id) || stringValue(account.accountId) || stringValue(account.account_id),
+    userId: stringValue(user.id) || stringValue(user.userId) || stringValue(user.user_id),
+    expiresAt: stringValue(data.expires) || stringValue(data.expiresAt) || stringValue(data.expires_at),
     fetchedAt: Date.now(),
   };
 }

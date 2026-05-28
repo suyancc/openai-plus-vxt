@@ -1,3 +1,4 @@
+import { scopedStorageKey } from '../../app/storage-scope';
 import type { AddressProfile } from '../address-autofill/types';
 import type { AddressAutofillSettings, ExtensionSettings } from './types';
 
@@ -44,8 +45,9 @@ const SUPPORTED_COUNTRY_CODES = new Set([
 ]);
 
 export async function loadExtensionSettings(): Promise<ExtensionSettings> {
-  const data = await browser.storage.local.get(SETTINGS_STORAGE_KEY);
-  return normalizeExtensionSettings(data[SETTINGS_STORAGE_KEY]);
+  const storageKey = scopedStorageKey(SETTINGS_STORAGE_KEY);
+  const data = await browser.storage.local.get(storageKey);
+  return normalizeExtensionSettings(data[storageKey]);
 }
 
 export async function saveAddressAutofillSettings(
@@ -62,7 +64,7 @@ export async function saveAddressAutofillSettings(
     addressAutofill,
     updatedAt: Date.now(),
   });
-  await browser.storage.local.set({ [SETTINGS_STORAGE_KEY]: next });
+  await browser.storage.local.set({ [scopedStorageKey(SETTINGS_STORAGE_KEY)]: next });
   return next.addressAutofill;
 }
 

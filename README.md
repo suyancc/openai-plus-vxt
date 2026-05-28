@@ -23,6 +23,7 @@ TG 群组：[https://t.me/fuck_open](https://t.me/fuck_open)
   - 从 session 中读取 `accessToken`、`user.email`、`account.planType`。
   - 支持生成 ChatGPT checkout 长链接和短链接。
   - Checkout 参数可在插件内调整并持久化。
+  - 支持本地模式或服务器 API 模式生成链接。
 
 - 地址资料
   - 支持从 `https://www.meiguodizhi.com/` 获取随机地址资料。
@@ -129,7 +130,23 @@ http://127.0.0.1:8787
 email----password----client_id----refresh_token
 ```
 
-插件会调用本地服务的 Outlook 邮件接口等待验证码。没有本地服务时，可以使用单邮箱模式，验证码手动输入。
+插件会每 5 秒调用本地服务的 Outlook 邮件接口等待验证码，优先按 `验证码` 关键词查询，每次最多读取最新 3 封邮件。没有本地服务时，可以使用单邮箱模式，验证码手动输入。
+
+### Checkout 提取模式
+
+提链接 tab 支持两种提取模式：
+
+- `本地`：扩展 background 直接请求 ChatGPT checkout 接口。
+- `服务器 API`：扩展把 accessToken 提交到服务器接口生成原始 checkout 链接。
+
+服务器接口：
+
+```http
+POST http://64.176.60.3:8788/checkout/raw
+Content-Type: application/json
+
+{"token":"PASTE_TOKEN_HERE"}
+```
 
 本仓库提供独立的 Outlook 验证码服务打包脚本：
 
@@ -149,6 +166,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-outlook-otp-se
 
 ## 权限和匹配页面
 
+## 普通窗口和无痕模式
+
+插件已配置 `incognito: "split"`，普通窗口和无痕窗口会使用各自的扩展上下文，读取 ChatGPT session 时会匹配当前窗口的登录态。
+
+无痕模式使用前需要手动开启权限：
+
+1. 打开 `chrome://extensions`。
+2. 找到 OpenAI Plus VXT。
+3. 打开“详情”。
+4. 开启“允许在无痕模式下运行”。
+
+普通窗口和无痕窗口的插件输入、当前 tab、接码历史、地址设置会分开保存，避免互相覆盖。
+
 插件会注入以下页面：
 
 - `https://chatgpt.com/*`
@@ -160,6 +190,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-outlook-otp-se
 插件请求的 host permissions 包含：
 
 - 本地 Outlook API：`127.0.0.1:8787`、`localhost:8787`
+- Checkout 服务器 API：`64.176.60.3:8788`
 - ChatGPT / OpenAI Auth / OpenAI Pay
 - PayPal
 - meiguodizhi 地址资料站点

@@ -3,7 +3,11 @@ import { defineConfig } from 'wxt';
 // See https://wxt.dev/api/config.html
 export default defineConfig({
   manifest: {
-    permissions: ['storage', 'tabs', 'scripting'],
+    incognito: 'split',
+    action: {
+      default_title: 'OpenAI Plus VXT',
+    },
+    permissions: ['storage', 'tabs', 'scripting', 'cookies'],
     host_permissions: [
       'http://*/*',
       'https://*/*',
@@ -17,6 +21,11 @@ export default defineConfig({
       'https://www.meiguodizhi.com/*',
       'https://api.github.com/*',
       'https://mail-api.yuecheng.shop/*',
+      'https://smsbower.page/*',
+      'https://hero-sms.com/*',
+      'https://api.smspool.net/*',
+      'https://smspool.net/*',
+      'https://api.tiger-sms.com/*',
     ],
   },
 });

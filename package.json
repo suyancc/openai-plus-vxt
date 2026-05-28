@@ -2,7 +2,7 @@
   "name": "openai-plus-vxt",
   "description": "ChatGPT registration assistant extension",
   "private": true,
-  "version": "0.0.4",
+  "version": "0.0.5",
   "type": "module",
   "scripts": {
     "dev": "wxt -b chrome",
