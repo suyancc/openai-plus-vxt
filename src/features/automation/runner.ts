@@ -17,8 +17,17 @@ import type { AddressProfile } from '../address-autofill/types';
 import {
   CHATGPT_REGISTER_URL,
   fillRegisterEmailFromCurrentInput,
+  fillRegisterPhoneNumber,
+  fillRegisterPhoneOtp,
   stopOutlookOtp,
 } from '../register/service';
+import {
+  buildRegisterPhoneRunPatch,
+  completeRegisterPhoneSelection,
+  loadRegisterPhoneSelectionFromRun,
+  requestRegisterPhoneNumber,
+  waitRegisterPhoneSmsCode,
+} from '../register-phone/service';
 import type { AutomationFinishCleanupResponse, CookieClearTarget } from '../settings/types';
 import { AUTOMATION_STEPS, nextVisibleAutomationStepId } from './steps';
 import {
@@ -33,6 +42,7 @@ import {
   updateAutomationSmsTargets,
 } from './state';
 import type {
+  AutomationRunState,
   AutomationSmsTarget,
   AutomationState,
   AutomationStepId,
@@ -55,11 +65,13 @@ import {
   isRetryableOpenAiCheckoutAddressFailure,
   isRetryablePaypalProfileFailure,
   isSmsNumberRejectedStep,
+  isTransientContentScriptResult,
   shouldRefreshPaymentAddress,
   shouldRetryPaymentProfile,
   type PaymentProfileResult,
 } from './runner-errors';
 import {
+  isAboutYouUrl,
   isChatGptHomeUrl,
   isOpenAiCheckoutUrl,
   isPaypalCheckoutFlowUrl,
@@ -99,6 +111,10 @@ import {
   waitPaymentSmsStep as waitPaymentSmsStepModule,
 } from './runner-payment-sms';
 import {
+  isFoxSmsTarget,
+  requestFoxSmsSpecifiedNumber,
+} from './fox-sms';
+import {
   createCheckoutLinkStep as createCheckoutLinkStepModule,
   openCheckoutLinkStep as openCheckoutLinkStepModule,
   readSessionStep as readSessionStepModule,
@@ -120,9 +136,22 @@ const PAYPAL_STEP_TIMEOUT_MS = 90_000;
 const AUTOMATION_START_STEP: AutomationStepId = 'cleanup-environment';
 const PAYMENT_STAGE_START_STEP: AutomationStepId = 'read-chatgpt-session';
 const PAYMENT_PROFILE_STEP: AutomationStepId = 'fill-payment-profile';
+const REGISTER_PHONE_RETRY_START_STEP: AutomationStepId = 'open-register';
 const BATCH_NEXT_ACCOUNT_DELAY_MS = 3_600;
 const AUTOMATION_STOP_CODE = 'automation-stopped';
+const REGISTER_PHONE_SMS_TIMEOUT_CODE = 'register-phone-sms-timeout';
 const STOP_SIDE_EFFECT_TIMEOUT_MS = 3_000;
+const CLEAR_REGISTER_PHONE_RUN: Partial<AutomationRunState> = {
+  selectedRegisterPhoneId: '',
+  registerPhoneSource: '',
+  registerPhoneNumber: '',
+  registerPhoneCountryId: '',
+  registerPhoneCountryIso: '',
+  registerPhoneServiceCode: '',
+  registerPhoneActivationId: '',
+  registerPhoneOperator: '',
+  registerPhoneCost: 0,
+};
 
 let autoRunActive = false;
 let stopRequested = false;
@@ -239,7 +268,8 @@ export async function runAutomationStep(stepId: AutomationStepId): Promise<Actio
     await setAutomationRunning(true, false);
   }
   await markAutomationStep(stepId, 'running', '执行中');
-  await appendAutomationLog('info', `开始：${stepTitle(stepId)}`, stepId);
+  const stateAtStart = await loadAutomationState();
+  await appendAutomationLog('info', `开始：${stepTitle(stepId, stateAtStart)}`, stepId);
   const startedAt = Date.now();
   await appendAutomationDebugLog(stepId, 'step-start', { wasAutoRunning });
   try {
@@ -290,7 +320,7 @@ export async function runAutomationStep(stepId: AutomationStepId): Promise<Actio
       await appendAutomationLog('success', result.message, stepId);
       if (!wasAutoRunning) {
         const state = await loadAutomationState();
-        await updateAutomationRun({ currentStepId: nextVisibleAutomationStepId(stepId, state.settings.oauthExtractMode) });
+        await updateAutomationRun({ currentStepId: nextVisibleAutomationStepId(stepId, state.settings.oauthExtractMode, state.settings.registrationMode) });
       }
     } else {
       await markAutomationStep(stepId, 'error', result.message);
@@ -439,11 +469,12 @@ export async function runAutomationFrom(stepId?: AutomationStepId): Promise<Acti
   const initialState = await loadAutomationState();
   const explicitStartStep = Boolean(stepId);
   let currentId: AutomationStepId | '' = resolveAutomationStartStep(initialState, stepId);
-  const allowBatch = !explicitStartStep && initialState.settings.emailSelectionMode !== 'specified';
+  const phoneRegistration = initialState.settings.registrationMode === 'phone';
+  const allowBatch = !explicitStartStep && (phoneRegistration || initialState.settings.emailSelectionMode !== 'specified');
   const batchLimit = allowBatch ? normalizeBatchAccountLimit(initialState.settings.batchAccountLimit) : 1;
   let completedAccounts = 0;
   await setAutomationRunning(true, false);
-  await appendAutomationLog('info', `自动执行开始：${stepTitle(currentId)}`, currentId);
+  await appendAutomationLog('info', `自动执行开始：${stepTitle(currentId, initialState)}`, currentId);
   await appendAutomationDebugLog(currentId, 'flow-start', {
     requestedStepId: stepId || '',
     resolvedStepId: currentId,
@@ -464,17 +495,24 @@ export async function runAutomationFrom(stepId?: AutomationStepId): Promise<Acti
       }
 
       const latest = await loadAutomationState();
-      if (!hasNextBatchEmail(latest)) {
+      if (latest.settings.registrationMode !== 'phone' && !hasNextBatchEmail(latest)) {
         break;
       }
 
-      await appendAutomationLog('info', `准备执行下一个邮箱：${completedAccounts + 1}/${batchLimit}`, AUTOMATION_START_STEP);
+      await appendAutomationLog(
+        'info',
+        latest.settings.registrationMode === 'phone'
+          ? `准备执行下一个手机号账号：${completedAccounts + 1}/${batchLimit}`
+          : `准备执行下一个邮箱：${completedAccounts + 1}/${batchLimit}`,
+        AUTOMATION_START_STEP,
+      );
       await interruptibleDelay(BATCH_NEXT_ACCOUNT_DELAY_MS);
       await resetAutomationProgress();
       await updateAutomationRun({
         currentStepId: AUTOMATION_START_STEP,
         selectedEmailId: '',
         selectedSmsId: '',
+        ...CLEAR_REGISTER_PHONE_RUN,
         checkoutUrl: '',
         sessionEmail: '',
       });
@@ -498,6 +536,9 @@ export async function runAutomationForEmail(emailId: string): Promise<ActionResu
     return { ok: false, message: '自动化流程正在运行' };
   }
   const state = await loadAutomationState();
+  if (state.settings.registrationMode === 'phone') {
+    return { ok: false, message: '当前是手机号注册模式，不支持按邮箱执行' };
+  }
   const email = state.emails.find((item) => item.id === emailId);
   if (!email) {
     return { ok: false, message: '邮箱不存在，请先刷新或保存邮箱池' };
@@ -531,6 +572,11 @@ async function runAutomationFlow(startStepId: AutomationStepId): Promise<Automat
       return { ...result, ok: false, completed: false, message: result.message || '自动执行已暂停' };
     }
     const latest = await loadAutomationState();
+    if (!result.ok && isRegisterPhoneSmsTimeoutResult(currentId, result, latest)) {
+      currentId = await restartRegisterPhoneAfterSmsTimeout(result);
+      await setAutomationRunning(true, false);
+      continue;
+    }
     if (!result.ok && isSmsNumberRejectedStep(currentId) && isPhoneNumberRejectedFailure(result)) {
       const disabled = await markSelectedSmsDisabled(result.message);
       const latestAfterDisable = await loadAutomationState();
@@ -578,11 +624,14 @@ async function runAutomationFlow(startStepId: AutomationStepId): Promise<Automat
       await markSelectedEmailError(result.message);
       return { ...result, completed: false };
     }
-    currentId = nextVisibleAutomationStepId(currentId, latest.settings.oauthExtractMode);
+    currentId = nextVisibleAutomationStepId(currentId, latest.settings.oauthExtractMode, latest.settings.registrationMode);
     await updateAutomationRun({ currentStepId: currentId });
   }
 
-  await markSelectedEmailUsed('流程完成');
+  const latest = await loadAutomationState();
+  if (latest.settings.registrationMode !== 'phone') {
+    await markSelectedEmailUsed('流程完成');
+  }
   return { ok: true, completed: true, message: '当前账号自动执行完成' };
 }
 
@@ -595,19 +644,30 @@ async function handleAccountUnavailableResult(
     return null;
   }
 
-  await markSelectedEmailError(result.message);
+  const latestBeforeCleanup = await loadAutomationState();
+  if (latestBeforeCleanup.settings.registrationMode !== 'phone') {
+    await markSelectedEmailError(result.message);
+  }
   const cleanup = await triggerAutomationCookieCleanupOnly();
   await appendAutomationLog(
     cleanup.ok ? 'warn' : 'error',
     cleanup.ok
-      ? `${accountUnavailableLabel}，已标记失败并清理 Cookie：${result.message}；${cleanup.message}`
-      : `${accountUnavailableLabel}，已标记失败；Cookie 清理失败：${cleanup.message}；原始错误：${result.message}`,
+      ? `${accountUnavailableLabel}${latestBeforeCleanup.settings.registrationMode === 'phone' ? '' : '，已标记失败'}并清理 Cookie：${result.message}；${cleanup.message}`
+      : `${accountUnavailableLabel}${latestBeforeCleanup.settings.registrationMode === 'phone' ? '' : '，已标记失败'}；Cookie 清理失败：${cleanup.message}；原始错误：${result.message}`,
     stepId,
   );
 
   await resetAutomationProgress();
   await clearAutomationTargetTab();
   const latestAfterReset = await loadAutomationState();
+  if (latestBeforeCleanup.settings.registrationMode === 'phone') {
+    const message = `${accountUnavailableLabel}，手机号注册模式不切换邮箱，任务已暂停：${result.message}`;
+    await appendAutomationLog('error', message, stepId);
+    return {
+      result: { ...result, ok: false, message },
+      paused: true,
+    };
+  }
   if (!hasNextBatchEmail(latestAfterReset)) {
     const message = `${accountUnavailableLabel}且没有下一个可用邮箱，任务已暂停：${result.message}`;
     await appendAutomationLog('error', message, stepId);
@@ -621,6 +681,7 @@ async function handleAccountUnavailableResult(
     currentStepId: AUTOMATION_START_STEP,
     selectedEmailId: '',
     selectedSmsId: '',
+    ...CLEAR_REGISTER_PHONE_RUN,
     checkoutUrl: '',
     sessionEmail: '',
   });
@@ -633,6 +694,47 @@ async function handleAccountUnavailableResult(
     },
     paused: false,
   };
+}
+
+function isRegisterPhoneSmsTimeoutMessage(message: string): boolean {
+  return message.includes('等待注册手机验证码超时');
+}
+
+function isRegisterPhoneSmsTimeoutResult(
+  stepId: AutomationStepId,
+  result: ActionResult,
+  state: AutomationState,
+): boolean {
+  return state.settings.registrationMode === 'phone' &&
+    stepId === 'wait-register-email-code' &&
+    (result.code === REGISTER_PHONE_SMS_TIMEOUT_CODE || isRegisterPhoneSmsTimeoutMessage(result.message));
+}
+
+async function restartRegisterPhoneAfterSmsTimeout(result: ActionResult): Promise<AutomationStepId> {
+  await appendAutomationLog(
+    'warn',
+    `注册手机验证码超时，清理 Cookie 后重新打开手机号入口并取新号码：${result.message}`,
+    'wait-register-email-code',
+  );
+  const cleanup = await triggerRegisterPhoneRetryCleanup();
+  await appendAutomationLog(
+    cleanup.ok ? 'warn' : 'error',
+    cleanup.ok
+      ? `注册手机重试清理完成：${cleanup.message}`
+      : `注册手机重试清理失败，仍会尝试重新打开手机号入口：${cleanup.message}`,
+    'cleanup-environment',
+  );
+  await resetAutomationFromStep('select-email');
+  await clearAutomationTargetTab();
+  await updateAutomationRun({
+    currentStepId: REGISTER_PHONE_RETRY_START_STEP,
+    selectedEmailId: '',
+    selectedSmsId: '',
+    ...CLEAR_REGISTER_PHONE_RUN,
+    checkoutUrl: '',
+    sessionEmail: '',
+  });
+  return REGISTER_PHONE_RETRY_START_STEP;
 }
 
 export async function stopAutomationRun(): Promise<ActionResult> {
@@ -672,6 +774,7 @@ export async function runAutomationStageFrom(
 function oauthStepContext() {
   return {
     ensureSelectedEmail,
+    ensureSessionIdentity,
     automationTargetTabId,
     bindAutomationTargetTab,
     waitForAutomationTabUrl,
@@ -679,6 +782,31 @@ function oauthStepContext() {
     isRegisterUrl,
     isStopRequested: () => stopRequested,
   };
+}
+
+async function ensureSessionIdentity(): Promise<void> {
+  const state = await loadAutomationState();
+  if (state.settings.registrationMode !== 'phone') {
+    await ensureSelectedEmail();
+    return;
+  }
+  const phone = (state.run.registerPhoneNumber || state.run.sessionEmail || '').trim();
+  if (!phone) {
+    throw new Error('没有当前注册手机号，请先执行“获取手机号”');
+  }
+  await saveRegisterState({
+    rawInput: '',
+    email: '',
+    accountLine: '',
+    inputMode: 'empty',
+    autoOtp: false,
+    otpRequestedAt: 0,
+    otpAutoPending: false,
+    otpAutoRunning: false,
+    otpJobId: '',
+    otpLastMessage: '',
+  });
+  await updateAutomationRun({ sessionEmail: phone });
 }
 
 function emailOtpStepContext() {
@@ -753,7 +881,7 @@ async function executeStep(stepId: AutomationStepId): Promise<ActionResult> {
     case 'fill-register-email':
       return fillRegisterEmailStep();
     case 'wait-register-email-code':
-      return waitOutlookCodeStepModule(emailOtpStepContext());
+      return waitRegisterCodeStep();
     case 'fill-profile':
       return fillProfileStepModule(profileStepContext());
     case 'read-chatgpt-session':
@@ -791,6 +919,9 @@ async function executeStep(stepId: AutomationStepId): Promise<ActionResult> {
 
 async function selectEmailStep(): Promise<ActionResult> {
   const state = await loadAutomationState();
+  if (state.settings.registrationMode === 'phone') {
+    return selectRegisterPhoneStep();
+  }
   const selected = selectEmail(state);
   if (!selected) {
     return { ok: false, message: '没有可用邮箱，请先在自动化设置页添加邮箱' };
@@ -825,14 +956,41 @@ async function selectEmailStep(): Promise<ActionResult> {
   return { ok: true, message: `已选择邮箱：${selected.email}` };
 }
 
+async function selectRegisterPhoneStep(): Promise<ActionResult> {
+  await updateAutomationRun(CLEAR_REGISTER_PHONE_RUN);
+  const selection = await requestRegisterPhoneNumber({
+    log: async (message, level = 'info') => {
+      await appendAutomationLog(level, message, 'select-email');
+    },
+    isStopRequested: () => stopRequested,
+  });
+  await updateAutomationRun(buildRegisterPhoneRunPatch(selection));
+  return {
+    ok: true,
+    message: `已获取注册手机号：${selection.phone}（${registerPhoneSourceLabel(selection.source)}）`,
+  };
+}
+
 async function openRegisterStep(): Promise<ActionResult> {
+  const state = await loadAutomationState();
+  const phoneRegistration = state.settings.registrationMode === 'phone';
+  const label = phoneRegistration ? '打开 ChatGPT 登录页' : '打开 ChatGPT 注册页';
   const tab = await browser.tabs.create({ url: CHATGPT_REGISTER_URL, active: true });
-  await bindAutomationTargetTab(tab, '打开 ChatGPT 注册页');
+  await bindAutomationTargetTab(tab, label);
   await waitForAutomationTabUrl((url) => isRegisterUrl(url), 12_000);
-  return { ok: true, message: '已打开 ChatGPT 注册页' };
+  return {
+    ok: true,
+    message: phoneRegistration
+      ? '已打开 ChatGPT 登录页，准备使用电话号码继续'
+      : '已打开 ChatGPT 注册页',
+  };
 }
 
 async function fillRegisterEmailStep(): Promise<ActionResult> {
+  const state = await loadAutomationState();
+  if (state.settings.registrationMode === 'phone') {
+    return fillRegisterPhoneStep(state);
+  }
   const email = await ensureSelectedEmail();
   const tabId = await automationTargetTabId();
   const url = await waitForAutomationTabUrl((currentUrl) => isRegisterUrl(currentUrl), 20_000);
@@ -845,8 +1003,102 @@ async function fillRegisterEmailStep(): Promise<ActionResult> {
   return result;
 }
 
-async function selectSmsStep(): Promise<ActionResult> {
+async function fillRegisterPhoneStep(state?: AutomationState): Promise<ActionResult> {
+  const latest = state || await loadAutomationState();
+  const phone = latest.run.registerPhoneNumber.trim();
+  if (!phone) {
+    return { ok: false, message: '没有当前注册手机号，请先执行“获取手机号”' };
+  }
+  const tabId = await automationTargetTabId();
+  const url = await waitForAutomationTabUrl((currentUrl) => isRegisterUrl(currentUrl), 20_000);
+  const load = await waitForAutomationTabComplete(20_000);
+  if (!load.ok) {
+    await appendAutomationLog('warn', `手机号注册页加载未完全完成，仍尝试填写：${load.message}`, 'fill-register-email');
+  }
+  await appendAutomationLog('info', `填手机号准备：${phone} @ ${shortUrl(url.href)}`, 'fill-register-email');
+  const result = await fillRegisterPhoneNumber(phone, latest.run.registerPhoneCountryIso, tabId);
+  const debug = summarizeActionData(result.data);
+  if (debug) {
+    await appendAutomationLog(result.ok ? 'info' : 'warn', `填手机号诊断：${debug}`, 'fill-register-email');
+  }
+  return result;
+}
+
+async function waitRegisterCodeStep(): Promise<ActionResult> {
   const state = await loadAutomationState();
+  if (state.settings.registrationMode !== 'phone') {
+    return waitOutlookCodeStepModule(emailOtpStepContext());
+  }
+  const selection = await loadRegisterPhoneSelectionFromRun(state.run);
+  if (!selection) {
+    return { ok: false, message: '没有当前注册手机号订单，请先执行“获取手机号”' };
+  }
+  const tabId = await automationTargetTabId();
+  const sms = await waitRegisterPhoneSmsCode(selection, {
+    log: async (message, level = 'info') => {
+      await appendAutomationLog(level, message, 'wait-register-email-code');
+    },
+    isStopRequested: () => stopRequested,
+  });
+  if (sms.kind !== 'code') {
+    if (isRegisterPhoneSmsTimeoutMessage(sms.message)) {
+      return {
+        ok: false,
+        message: sms.message,
+        code: REGISTER_PHONE_SMS_TIMEOUT_CODE,
+        data: { registerPhoneSmsTimeout: true },
+      };
+    }
+    return { ok: false, message: sms.message };
+  }
+
+  await appendAutomationLog('info', `收到注册手机验证码：${sms.code}`, 'wait-register-email-code');
+  let fillResult: ActionResult;
+  try {
+    fillResult = await fillRegisterPhoneOtp(sms.code, tabId);
+  } catch (error) {
+    const transientResult: ActionResult = {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
+    if (!isTransientContentScriptResult(transientResult)) {
+      throw error;
+    }
+    fillResult = {
+      ok: true,
+      message: '注册手机验证码已提交，页面正在跳转',
+      data: { transientContentScriptResult: transientResult.message },
+    };
+  }
+  if (!fillResult.ok && isTransientContentScriptResult(fillResult)) {
+    fillResult = {
+      ok: true,
+      message: '注册手机验证码已提交，页面正在跳转',
+      data: fillResult.data,
+    };
+  }
+  if (!fillResult.ok) {
+    return fillResult;
+  }
+
+  const nextUrl = await waitForAutomationTabUrl((url) => isAboutYouUrl(url), 60_000);
+  await completeRegisterPhoneSelection(selection, `${sms.message}；${fillResult.message}`);
+  return {
+    ok: true,
+    message: `${sms.message}；${fillResult.message}；已进入资料填写页：${shortUrl(nextUrl.href)}`,
+    data: fillResult.data,
+  };
+}
+
+function registerPhoneSourceLabel(source: string): string {
+  if (source === 'api') {
+    return 'OAuth API 接码池';
+  }
+  return `OAuth ${source}`;
+}
+
+async function selectSmsStep(): Promise<ActionResult> {
+  let state = await loadAutomationState();
   const selected = selectSmsTarget(state);
   if (!selected) {
     const disabledCount = state.smsTargets.filter((target) => target.disabled).length;
@@ -856,18 +1108,45 @@ async function selectSmsStep(): Promise<ActionResult> {
     return { ok: false, message: '没有可用接码链接，请先在自动化设置页添加接码信息' };
   }
   const now = Date.now();
+  let nextSelected = selected;
+  if (isFoxSmsTarget(selected)) {
+    try {
+      const order = await requestFoxSmsSpecifiedNumber(selected);
+      nextSelected = {
+        ...selected,
+        phone: order.phone || selected.phone,
+        activationId: order.activationId,
+        countryCode: order.countryCode || selected.countryCode || 'jpn',
+        projectId: order.projectId || selected.projectId || '35',
+        lastMessage: order.message,
+      };
+      await appendAutomationLog('info', `${order.message}；手机号 ${nextSelected.phone}`, 'select-sms');
+      state = await loadAutomationState();
+    } catch (error) {
+      return {
+        ok: false,
+        message: `Fox SMS 指定号码申请失败：${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
   const smsTargets = state.smsTargets.map((target) => target.id === selected.id
     ? {
         ...target,
+        ...nextSelected,
         useCount: target.useCount + 1,
         lastUsedAt: now,
-        lastMessage: '当前流程正在使用',
+        lastMessage: isFoxSmsTarget(nextSelected) ? nextSelected.lastMessage || '当前流程正在使用' : '当前流程正在使用',
       }
     : target);
   await updateAutomationSmsTargets(smsTargets);
-  await saveSmsRelayState({ rawInput: selected.rawInput });
-  await updateAutomationRun({ selectedSmsId: selected.id });
-  return { ok: true, message: `已选择接码号码：${selected.phone}` };
+  await saveSmsRelayState({ rawInput: nextSelected.rawInput });
+  await updateAutomationRun({ selectedSmsId: nextSelected.id });
+  return {
+    ok: true,
+    message: isFoxSmsTarget(nextSelected)
+      ? `已选择 Fox SMS 指定号码：${nextSelected.phone}，logId=${nextSelected.activationId}`
+      : `已选择接码号码：${selected.phone}`,
+  };
 }
 
 async function submitOpenAiCheckoutStep(): Promise<ActionResult> {
@@ -892,7 +1171,29 @@ async function submitOpenAiCheckoutStep(): Promise<ActionResult> {
       return { ok: false, message: address.message || '获取随机地址失败' };
     }
 
-    const result = await submitCurrentOpenAiCheckout(address.address, tabId);
+    let result: ActionResult;
+    try {
+      result = await submitCurrentOpenAiCheckout(address.address, tabId);
+    } catch (error) {
+      const transientResult: ActionResult = {
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      };
+      if (!isTransientContentScriptResult(transientResult)) {
+        throw error;
+      }
+      await appendAutomationLog(
+        'warn',
+        `OpenAI 订阅提交时页面正在跳转，等待 PayPal 页面确认：${transientResult.message}`,
+        'submit-openai-checkout',
+      );
+      const paypalUrl = await waitForAutomationTabUrl((url) => isPaypalCheckoutFlowUrl(url), PAYPAL_STEP_TIMEOUT_MS);
+      return {
+        ok: true,
+        message: `OpenAI 订阅页已提交，页面已进入 PayPal：${shortUrl(paypalUrl.href)}`,
+        data: { transientContentScriptResult: transientResult.message },
+      };
+    }
     lastResult = result;
     await appendAutomationLog(
       result.ok ? 'info' : 'warn',
@@ -938,7 +1239,7 @@ async function openPaypalAccountStep(): Promise<ActionResult> {
     return ready;
   }
   await appendAutomationLog('info', `PayPal 创建账户入口：${summarizeActionData(ready.data)}`, 'open-paypal-account');
-  const result = await openCurrentPaypalAccountEntry(tabId);
+  const result = await openPaypalAccountEntryWithNavigationTolerance(tabId);
   if (!result.ok) {
     return result;
   }
@@ -949,6 +1250,28 @@ async function openPaypalAccountStep(): Promise<ActionResult> {
     message: nextReady.ok ? `${result.message}；${nextReady.message}` : nextReady.message,
     data: nextReady.data || result.data,
   };
+}
+
+async function openPaypalAccountEntryWithNavigationTolerance(tabId: number): Promise<ActionResult> {
+  try {
+    return await openCurrentPaypalAccountEntry(tabId);
+  } catch (error) {
+    const result = {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
+    if (!isTransientContentScriptResult(result)) {
+      throw error;
+    }
+    await appendAutomationDebugLog('open-paypal-account', 'paypal-entry-message-channel-closed', {
+      message: result.message,
+    });
+    return {
+      ok: true,
+      message: '已点击 PayPal 创建账户入口，页面正在跳转',
+      data: { transientContentScriptResult: result.message },
+    };
+  }
 }
 
 async function fillPaypalEmailStep(): Promise<ActionResult> {
@@ -1106,6 +1429,35 @@ async function triggerStartCleanup(): Promise<{ ok: boolean; message: string }> 
     return {
       ok: false,
       message: `开始前清理触发失败：${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+async function triggerRegisterPhoneRetryCleanup(): Promise<{ ok: boolean; message: string }> {
+  try {
+    const [state, targetTab] = await Promise.all([loadAutomationState(), getAutomationTargetTab()]);
+    const windowId = targetTab?.windowId || (state.run.targetWindowId > 0 ? state.run.targetWindowId : undefined);
+    const response = await browser.runtime.sendMessage({
+      type: 'opx:automation-finish-cleanup',
+      cookieTargets: ['chatgpt'],
+      closeTabs: true,
+      windowId,
+      closeDelayMs: 0,
+    }) as AutomationFinishCleanupResponse;
+    if (!response?.message) {
+      return { ok: false, message: '手机号注册重试清理已触发，但没有返回状态' };
+    }
+    if (response.closeTabsScheduled) {
+      await interruptibleDelay(900);
+    }
+    return {
+      ok: Boolean(response.ok),
+      message: response.ok ? response.message : `清理部分失败：${response.message}`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: `手机号注册重试清理触发失败：${error instanceof Error ? error.message : String(error)}`,
     };
   }
 }

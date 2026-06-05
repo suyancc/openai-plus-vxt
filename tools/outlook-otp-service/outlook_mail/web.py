@@ -34,7 +34,7 @@ def fetch_messages(
 ) -> dict[str, Any]:
     account = parse_account_line(account_line, tenant=tenant)
     mailbox_names = _mailbox_names(mailbox)
-    base_limit = max(1, min(int(limit or 3), 3))
+    base_limit = max(1, min(int(limit or 3), 30))
     messages = []
     folder_errors: dict[str, str] = {}
     fetched_mailboxes: list[str] = []

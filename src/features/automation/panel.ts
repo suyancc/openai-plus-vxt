@@ -181,15 +181,17 @@ export function createAutomationPanel(container: HTMLElement): FeaturePanelHandl
   function render(state: AutomationState): void {
     const email = state.emails.find((item) => item.id === state.run.selectedEmailId);
     const sms = state.smsTargets.find((item) => item.id === state.run.selectedSmsId);
-    const visibleSteps = visibleAutomationSteps(state.settings.oauthExtractMode);
+    const visibleSteps = visibleAutomationSteps(state.settings.oauthExtractMode, state.settings.registrationMode);
     const visibleIds = new Set(visibleSteps.map((step) => step.id));
     const successCount = state.steps.filter((step) => visibleIds.has(step.id) && step.status === 'success').length;
     const runningStep = state.steps.find((step) => visibleIds.has(step.id) && step.status === 'running');
     summary.textContent = [
       `${successCount} / ${visibleSteps.length} 步`,
-      `${state.emails.length} 个邮箱`,
+      state.settings.registrationMode === 'phone' ? '手机号注册' : `${state.emails.length} 个邮箱`,
       `${state.smsTargets.length} 个接码`,
-      email ? `当前：${email.email}` : '未选邮箱',
+      state.settings.registrationMode === 'phone'
+        ? (state.run.registerPhoneNumber ? `当前：${state.run.registerPhoneNumber}` : '未取手机号')
+        : (email ? `当前：${email.email}` : '未选邮箱'),
       sms ? `接码：${sms.phone}` : '',
     ].filter(Boolean).join(' · ');
     stepsProgress.textContent = runningStep ? `执行中：${runningStep.id}` : `${successCount} / ${visibleSteps.length}`;
@@ -201,12 +203,14 @@ export function createAutomationPanel(container: HTMLElement): FeaturePanelHandl
 
   function renderStages(state: AutomationState): void {
     stagesList.textContent = '';
-    const visibleDefinitions = visibleAutomationSteps(state.settings.oauthExtractMode);
+    const visibleDefinitions = visibleAutomationSteps(state.settings.oauthExtractMode, state.settings.registrationMode);
     const visibleById = new Map(visibleDefinitions.map((definition) => [definition.id, definition]));
+    const visibleOrder = new Map(visibleDefinitions.map((definition, index) => [definition.id, index]));
     for (const stage of AUTOMATION_STAGES) {
       const definitions = stage.stepIds
         .map((stepId) => visibleById.get(stepId))
-        .filter((definition): definition is typeof visibleDefinitions[number] => Boolean(definition));
+        .filter((definition): definition is typeof visibleDefinitions[number] => Boolean(definition))
+        .sort((left, right) => (visibleOrder.get(left.id) ?? 0) - (visibleOrder.get(right.id) ?? 0));
       if (!definitions.length) {
         continue;
       }

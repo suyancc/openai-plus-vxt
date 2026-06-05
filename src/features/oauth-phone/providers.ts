@@ -21,9 +21,20 @@ const SMS_ACTIVATE_STATUS: Record<OAuthPhoneActivationStatus, number> = {
   cancel: 8,
 };
 
+const FOX_SMS_PUBLIC_BASE_URL = 'https://foxsms.cc/api/v1';
+const FOX_SMS_OPENAI_PROJECT_ID = '91';
 const SMSPOOL_OPENAI_SERVICE_ID = '671';
 const SMSPOOL_DEFAULT_POOL = '7';
 const DEFAULT_RUB_PER_USD = 75;
+const DEFAULT_CNY_PER_USD = 7.2;
+
+interface SmsPoolHttpDebugResponse {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  text: string;
+  data: unknown;
+}
 
 const PROVIDER_DEFINITIONS: OAuthPhoneProviderDefinition[] = [
   {
@@ -58,6 +69,14 @@ const PROVIDER_DEFINITIONS: OAuthPhoneProviderDefinition[] = [
     defaultServiceCode: 'dr',
     priceCurrency: 'RUB',
   },
+  {
+    id: 'foxsms',
+    label: 'Fox SMS',
+    baseUrl: FOX_SMS_PUBLIC_BASE_URL,
+    supportsV2: false,
+    defaultServiceCode: FOX_SMS_OPENAI_PROJECT_ID,
+    priceCurrency: 'CNY',
+  },
 ];
 
 export const OAUTH_PHONE_PROVIDER_DEFINITIONS = PROVIDER_DEFINITIONS;
@@ -70,6 +89,9 @@ export function createOAuthPhoneProvider(id: OAuthPhoneProviderId): OAuthPhonePr
   const definition = getOAuthPhoneProviderDefinition(id);
   if (definition.id === 'smspool') {
     return new SmsPoolProvider(definition);
+  }
+  if (definition.id === 'foxsms') {
+    return new FoxSmsProvider(definition);
   }
   return new SmsActivateCompatibleProvider(definition);
 }
@@ -148,11 +170,27 @@ class SmsPoolProvider implements OAuthPhoneProviderClient {
       countryName: request.countryName || '',
       serviceCode: service,
       providerIds: pool,
+      endpoint: `${this.definition.baseUrl.replace(/\/$/, '')}/purchase/sms`,
+      method: 'POST',
       expectedCost: request.expectedCost,
       maxPrice: request.maxPrice,
-      params: body,
+      params: cleanParams(body),
     });
-    const data = await this.requestJson(settings, 'purchase/sms', body);
+    const data = await this.requestJson(settings, 'purchase/sms', body, (response) => {
+      emitOAuthPhoneProviderLog(request, 'number-response-http', this.definition.id, {
+        countryId: request.countryId,
+        countryName: request.countryName || '',
+        serviceCode: service,
+        providerIds: pool,
+        endpoint: `${this.definition.baseUrl.replace(/\/$/, '')}/purchase/sms`,
+        method: 'POST',
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        rawText: response.text,
+        parsed: response.data,
+      });
+    });
     emitOAuthPhoneProviderLog(request, 'number-response', this.definition.id, {
       countryId: request.countryId,
       countryName: request.countryName || '',
@@ -226,6 +264,7 @@ class SmsPoolProvider implements OAuthPhoneProviderClient {
     settings: OAuthPhoneProviderSettings,
     path: string,
     params: Record<string, string | number | undefined>,
+    debug?: (response: SmsPoolHttpDebugResponse) => void,
   ): Promise<unknown> {
     const apiKey = settings.apiKey.trim();
     if (!apiKey) {
@@ -234,12 +273,13 @@ class SmsPoolProvider implements OAuthPhoneProviderClient {
     return this.requestPublicJson(path, {
       key: apiKey,
       ...params,
-    });
+    }, debug);
   }
 
   private async requestPublicJson(
     path: string,
     params: Record<string, string | number | undefined>,
+    debug?: (response: SmsPoolHttpDebugResponse) => void,
   ): Promise<unknown> {
     const body = buildSmsPoolParams(params);
     const postUrl = `${this.definition.baseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
@@ -250,6 +290,13 @@ class SmsPoolProvider implements OAuthPhoneProviderClient {
     });
     const postText = (await postResponse.text()).trim();
     const postData = parseJson(postText);
+    debug?.({
+      ok: postResponse.ok,
+      status: postResponse.status,
+      statusText: postResponse.statusText,
+      text: postText,
+      data: postData,
+    });
     if (postResponse.ok) {
       return postData ?? postText;
     }
@@ -597,6 +644,195 @@ class SmsActivateCompatibleProvider implements OAuthPhoneProviderClient {
   }
 }
 
+class FoxSmsProvider implements OAuthPhoneProviderClient {
+  constructor(public readonly definition: OAuthPhoneProviderDefinition) {}
+
+  async getBalance(settings: OAuthPhoneProviderSettings): Promise<OAuthPhoneBalance> {
+    const token = await this.resolvePublicToken(settings);
+    const data = await this.requestPublicJson('getSummary', { token });
+    if (!isSuccessfulFoxSmsResponse(data)) {
+      throw new Error(normalizeFoxSmsError(data));
+    }
+    const providerAmount = Number(readFirstFoxSms(data, ['balance', 'amount', 'credit']) || 0);
+    return {
+      providerId: this.definition.id,
+      amount: fromProviderPrice(this.definition, providerAmount),
+      currency: 'USD',
+      raw: JSON.stringify(data),
+    };
+  }
+
+  async getCountries(_settings: OAuthPhoneProviderSettings): Promise<OAuthPhoneCountry[]> {
+    return [{
+      id: 'jpn',
+      name: '日本',
+      englishName: 'JPN',
+      chineseName: '日本',
+      raw: {
+        countryCode: 'jpn',
+        countryName: '日本',
+        source: 'foxsms-public-api-fixed',
+      },
+    }];
+  }
+
+  async getPrices(
+    _settings: OAuthPhoneProviderSettings,
+    _countryId: string,
+    _serviceCode: string,
+  ): Promise<OAuthPhonePriceOffer[]> {
+    return [];
+  }
+
+  async getDetailedPrices(
+    _settings: OAuthPhoneProviderSettings,
+    _serviceCode: string,
+    _countryId = '',
+  ): Promise<OAuthPhonePriceOffer[]> {
+    return [];
+  }
+
+  async requestNumber(
+    settings: OAuthPhoneProviderSettings,
+    request: OAuthPhoneNumberRequest,
+  ): Promise<OAuthPhoneOrder> {
+    const token = await this.resolvePublicToken(settings);
+    const projectId = normalizeFoxSmsProjectId(request.serviceCode);
+    const params: Record<string, string | number | undefined> = {
+      token,
+      countryCode: normalizeFoxSmsCountryCode(request.countryId),
+      projectId,
+    };
+    emitOAuthPhoneProviderLog(request, 'number-request', this.definition.id, {
+      countryId: request.countryId,
+      countryName: request.countryName || '',
+      serviceCode: projectId,
+      expectedCost: request.expectedCost,
+      maxPrice: request.maxPrice,
+      params: {
+        countryCode: params.countryCode,
+        projectId: params.projectId,
+      },
+    });
+    const data = await this.requestPublicJson('getPhone', params);
+    emitOAuthPhoneProviderLog(request, 'number-response', this.definition.id, {
+      countryId: request.countryId,
+      countryName: request.countryName || '',
+      serviceCode: projectId,
+      expectedCost: request.expectedCost,
+      maxPrice: request.maxPrice,
+      raw: data,
+    });
+    if (!isSuccessfulFoxSmsResponse(data)) {
+      throw new Error(normalizeFoxSmsError(data));
+    }
+    const activationId = String(readFirstFoxSms(data, ['logId', 'id', 'activationId']) || '').trim();
+    const phoneNumber = String(readFirstFoxSms(data, ['phoneNumber', 'phone', 'number']) || '').replace(/[^\d]/g, '');
+    if (!activationId || !phoneNumber) {
+      throw new Error(`Fox SMS 索号返回缺少订单或号码：${JSON.stringify(data)}`);
+    }
+    const billingAmount = Number(readFirstFoxSms(data, ['billingAmount', 'amount', 'price', 'cost']) || 0);
+    return {
+      providerId: this.definition.id,
+      activationId,
+      phoneNumber,
+      countryId: String(readFirstFoxSms(data, ['countryCode']) || params.countryCode || request.countryId).trim(),
+      serviceCode: String(readFirstFoxSms(data, ['projectId']) || projectId),
+      cost: fromProviderPrice(this.definition, billingAmount) || Number(request.expectedCost || 0),
+      operator: String(readFirstFoxSms(data, ['areaCode', 'operator']) || request.operator || '').trim(),
+      status: 'requested',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      raw: data,
+    };
+  }
+
+  async getSms(settings: OAuthPhoneProviderSettings, order: OAuthPhoneOrder): Promise<OAuthPhoneSmsStatus> {
+    const token = await this.resolvePublicToken(settings);
+    const data = await this.requestPublicJson('getSms', {
+      token,
+      logId: order.activationId,
+    });
+    const { code, message } = extractFoxSmsPayload(data);
+    if (code) {
+      return buildSmsStatus(this.definition.id, order.activationId, 'received', code, message || code, data);
+    }
+    if (isWaitingFoxSmsResponse(data)) {
+      return buildSmsStatus(this.definition.id, order.activationId, 'waiting', '', normalizeFoxSmsError(data) || '等待短信', data);
+    }
+    if (isCanceledFoxSmsResponse(data)) {
+      return buildSmsStatus(this.definition.id, order.activationId, 'canceled', '', normalizeFoxSmsError(data), data);
+    }
+    throw new Error(normalizeFoxSmsError(data));
+  }
+
+  async setStatus(
+    settings: OAuthPhoneProviderSettings,
+    order: OAuthPhoneOrder,
+    status: OAuthPhoneActivationStatus,
+  ): Promise<{ ok: boolean; message: string; raw: unknown }> {
+    if (status !== 'cancel') {
+      return { ok: true, message: 'Fox SMS 不需要设置完成状态', raw: null };
+    }
+    const token = await this.resolvePublicToken(settings);
+    const data = await this.requestPublicJson('release', {
+      token,
+      logId: order.activationId,
+    });
+    const ok = isSuccessfulFoxSmsResponse(data);
+    return {
+      ok,
+      message: ok ? '已释放 Fox SMS 订单' : normalizeFoxSmsError(data),
+      raw: data,
+    };
+  }
+
+  private async resolvePublicToken(settings: OAuthPhoneProviderSettings): Promise<string> {
+    const credentials = parseFoxSmsCredentials(settings.apiKey);
+    if (credentials.token) {
+      return credentials.token;
+    }
+    if (!credentials.username || !credentials.password) {
+      throw new Error('Fox SMS API key 请填写 jmapi token 或 username----password');
+    }
+    const data = await this.requestPublicJson('login', {
+      username: credentials.username,
+      password: credentials.password,
+    });
+    if (!isSuccessfulFoxSmsResponse(data)) {
+      throw new Error(normalizeFoxSmsError(data));
+    }
+    const token = String(readFirstFoxSms(data, ['token', 'apiToken']) || '').trim();
+    if (!token) {
+      throw new Error('Fox SMS 登录成功但没有返回 token');
+    }
+    return token;
+  }
+
+  private async requestPublicJson(
+    path: string,
+    params: Record<string, string | number | undefined>,
+  ): Promise<unknown> {
+    const url = new URL(`${this.definition.baseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`);
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== '') {
+        url.searchParams.set(key, String(value));
+      }
+    }
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      cache: 'no-store',
+    });
+    const text = (await response.text()).trim();
+    const data = parseJson(text);
+    if (response.ok) {
+      return data ?? text;
+    }
+    throw new Error(normalizeFoxSmsError((data ?? text) || response.statusText));
+  }
+
+}
+
 function normalizeCountry(value: unknown): OAuthPhoneCountry | null {
   if (!isRecord(value)) {
     return null;
@@ -692,6 +928,62 @@ function normalizeSmsPoolPriceOffer(
   };
 }
 
+function normalizeFoxSmsCountry(value: unknown): OAuthPhoneCountry | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = normalizeFoxSmsCountryCode(String(readFirstFoxSms(value, ['countryCode', 'smsCountryKey', 'code']) || ''));
+  if (!id) {
+    return null;
+  }
+  const chineseName = String(readFirstFoxSms(value, ['countryName', 'name', 'display']) || '').trim();
+  const areaCode = String(readFirstFoxSms(value, ['areaCode', 'dialCode']) || '').trim();
+  return {
+    id,
+    name: chineseName || id.toUpperCase(),
+    englishName: id.toUpperCase(),
+    chineseName,
+    raw: {
+      ...value,
+      areaCode,
+    },
+  };
+}
+
+function normalizeFoxSmsPriceOffer(
+  definition: OAuthPhoneProviderDefinition,
+  value: unknown,
+  country: OAuthPhoneCountry,
+  requestedServiceCode: string,
+): OAuthPhonePriceOffer | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const serviceCode = String(readFirstFoxSms(value, ['projectId', 'serviceCode', 'id']) || '').trim();
+  if (!serviceCode || serviceCode !== requestedServiceCode) {
+    return null;
+  }
+  const hasPrice = readFirstFoxSms(value, ['hasPrice']);
+  const providerCost = Number(readFirstFoxSms(value, ['salePrice', 'price', 'cost']) || 0);
+  if (hasPrice === false || hasPrice === 'false' || !Number.isFinite(providerCost) || providerCost <= 0) {
+    return null;
+  }
+  const countValue = readFirstFoxSms(value, ['stock', 'count', 'available', 'quantity']);
+  const count = countValue === undefined ? -1 : Number(countValue);
+  return {
+    providerId: definition.id,
+    countryId: country.id,
+    serviceCode,
+    cost: fromProviderPrice(definition, providerCost),
+    count: Number.isFinite(count) ? count : -1,
+    operator: String(readFirstFoxSms(value, ['projectName', 'operator']) || '').trim(),
+    raw: {
+      country: country.raw,
+      project: value,
+    },
+  };
+}
+
 function normalizeSmsPoolActiveOrder(providerId: OAuthPhoneProviderId, value: unknown): OAuthPhoneOrder | null {
   if (!isRecord(value)) {
     return null;
@@ -781,6 +1073,9 @@ function fromProviderPrice(definition: OAuthPhoneProviderDefinition, value: numb
   if (definition.priceCurrency === 'RUB') {
     return roundProviderUsd(value / DEFAULT_RUB_PER_USD);
   }
+  if (definition.priceCurrency === 'CNY') {
+    return roundProviderUsd(value / DEFAULT_CNY_PER_USD);
+  }
   return roundProviderUsd(value);
 }
 
@@ -791,6 +1086,9 @@ function toProviderPrice(definition: OAuthPhoneProviderDefinition, value: number
   if (definition.priceCurrency === 'RUB') {
     return roundProviderRub(value * DEFAULT_RUB_PER_USD);
   }
+  if (definition.priceCurrency === 'CNY') {
+    return roundProviderCny(value * DEFAULT_CNY_PER_USD);
+  }
   return roundProviderUsd(value);
 }
 
@@ -799,6 +1097,10 @@ function roundProviderUsd(value: number): number {
 }
 
 function roundProviderRub(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function roundProviderCny(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
@@ -828,18 +1130,30 @@ function normalizeSmsPoolServiceCode(value: string): string {
   return service;
 }
 
+function normalizeFoxSmsProjectId(value: string): string {
+  const service = String(value || '').trim();
+  if (!service || service === 'dr' || /^(openai|chatgpt|openai\/chatgpt)$/i.test(service)) {
+    return FOX_SMS_OPENAI_PROJECT_ID;
+  }
+  return service.replace(/[^\d]/g, '') || FOX_SMS_OPENAI_PROJECT_ID;
+}
+
+function normalizeFoxSmsCountryCode(value: string): string {
+  return String(value || '').trim().toLowerCase();
+}
+
 function normalizeSmsPoolOrderPhoneNumber(value: Record<string, unknown>): string {
-  const local = String(readFirst(value, ['phonenumber', 'phone_number']) || '').replace(/[^\d]/g, '');
-  if (local) {
-    return local;
+  const full = String(readFirst(value, ['number', 'phone']) || '').replace(/[^\d]/g, '');
+  if (full) {
+    return full;
   }
 
-  const full = String(readFirst(value, ['number', 'phone']) || '').replace(/[^\d]/g, '');
+  const local = String(readFirst(value, ['phonenumber', 'phone_number']) || '').replace(/[^\d]/g, '');
   const countryCode = String(readFirst(value, ['cc', 'country_code', 'dial_code']) || '').replace(/[^\d]/g, '');
-  if (full && countryCode && full.startsWith(countryCode) && full.length > countryCode.length + 4) {
-    return full.slice(countryCode.length);
+  if (local && countryCode && !local.startsWith(countryCode)) {
+    return `${countryCode}${local}`;
   }
-  return full;
+  return local;
 }
 
 function isSuccessfulSmsPoolResponse(value: unknown): boolean {
@@ -883,6 +1197,151 @@ function normalizeSmsPoolError(value: unknown): string {
   return messages[0] || direct || 'SMSPool 请求失败';
 }
 
+function parseFoxSmsCredentials(value: string): { token: string; username: string; password: string } {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return { token: '', username: '', password: '' };
+  }
+  if (/^token\s*:/i.test(raw)) {
+    return { token: raw.replace(/^token\s*:/i, '').trim(), username: '', password: '' };
+  }
+  if (/^jmapi_/i.test(raw)) {
+    return { token: raw, username: '', password: '' };
+  }
+  const dashParts = raw.split('----').map((item) => item.trim());
+  if (dashParts.length >= 2 && dashParts[0] && dashParts[1]) {
+    return { token: '', username: dashParts[0], password: dashParts.slice(1).join('----') };
+  }
+  const colonIndex = raw.indexOf(':');
+  if (colonIndex > 0) {
+    return {
+      token: '',
+      username: raw.slice(0, colonIndex).trim(),
+      password: raw.slice(colonIndex + 1).trim(),
+    };
+  }
+  return { token: raw, username: '', password: '' };
+}
+
+function isSuccessfulFoxSmsResponse(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const success = value.success;
+  if (success === true || success === 1 || success === '1' || success === 'true') {
+    return true;
+  }
+  const code = Number(readFirst(value, ['code']) ?? NaN);
+  if (Number.isFinite(code) && (code === 0 || code === 200)) {
+    return true;
+  }
+  return Boolean(readFirstFoxSms(value, ['token', 'balance', 'phoneNumber', 'smsCode']));
+}
+
+function isWaitingFoxSmsResponse(value: unknown): boolean {
+  const message = normalizeFoxSmsError(value).toLowerCase();
+  return message.includes('wait') ||
+    message.includes('waiting') ||
+    message.includes('pending') ||
+    message.includes('not received') ||
+    message.includes('no sms') ||
+    message.includes('retry') ||
+    message.includes('未收到') ||
+    message.includes('等待') ||
+    message.includes('暂无');
+}
+
+function isCanceledFoxSmsResponse(value: unknown): boolean {
+  const status = String(isRecord(value) ? readFirstFoxSms(value, ['status', 'state']) || '' : '').trim().toLowerCase();
+  const message = normalizeFoxSmsError(value).toLowerCase();
+  return status === '3' ||
+    status === '4' ||
+    status.includes('cancel') ||
+    status.includes('release') ||
+    message.includes('cancel') ||
+    message.includes('released') ||
+    message.includes('释放') ||
+    message.includes('取消');
+}
+
+function normalizeFoxSmsError(value: unknown): string {
+  if (typeof value === 'string') {
+    return value.trim() || 'Fox SMS 返回空响应';
+  }
+  if (!isRecord(value)) {
+    return 'Fox SMS 返回未知响应';
+  }
+  const direct = String(readFirstFoxSms(value, [
+    'message',
+    'msg',
+    'error',
+    'errorMessage',
+    'status',
+    'statusText',
+    'detail',
+  ]) || '').trim();
+  const retryAfterMs = Number(readFirstFoxSms(value, ['retryAfterMs']) || 0);
+  if (retryAfterMs > 0 && !direct) {
+    return `等待短信，${retryAfterMs}ms 后重试`;
+  }
+  return direct || 'Fox SMS 请求失败';
+}
+
+function extractFoxSmsPayload(value: unknown): { code: string; message: string } {
+  if (isRecord(value)) {
+    const code = String(readFirstFoxSms(value, ['smsCode', 'code', 'otp', 'pin']) || '').trim();
+    const message = String(readFirstFoxSms(value, ['fullSms', 'message', 'smsText', 'text', 'body']) || '').trim();
+    const extracted = code || extractDigitsCode(message);
+    if (extracted) {
+      return { code: extracted, message: message || extracted };
+    }
+  }
+  const text = typeof value === 'string' ? value : JSON.stringify(value || '');
+  return {
+    code: extractDigitsCode(text),
+    message: text,
+  };
+}
+
+function foxSmsPayload(value: unknown): unknown {
+  if (!isRecord(value)) {
+    return value;
+  }
+  const data = value.data;
+  if (data !== undefined && data !== null && data !== '') {
+    return data;
+  }
+  const result = value.result;
+  if (result !== undefined && result !== null && result !== '') {
+    return result;
+  }
+  return value;
+}
+
+function foxSmsRows(value: unknown): unknown[] {
+  const payload = foxSmsPayload(value);
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (!isRecord(payload)) {
+    return [];
+  }
+  const nested = readFirst(payload, ['list', 'rows', 'items', 'records']);
+  if (Array.isArray(nested)) {
+    return nested;
+  }
+  return Object.values(payload);
+}
+
+function readFirstFoxSms(value: unknown, keys: string[]): unknown {
+  const payload = foxSmsPayload(value);
+  const direct = readFirst(payload, keys);
+  if (direct !== undefined) {
+    return direct;
+  }
+  return readFirst(value, keys);
+}
+
 function readFirst(value: unknown, keys: string[]): unknown {
   if (!isRecord(value)) {
     return undefined;
@@ -905,6 +1364,16 @@ function buildSmsPoolParams(params: Record<string, string | number | undefined>)
     }
   }
   return body;
+}
+
+function cleanParams(params: Record<string, string | number | undefined>): Record<string, string | number> {
+  const output: Record<string, string | number> = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '') {
+      output[key] = value;
+    }
+  }
+  return output;
 }
 
 function normalizeActiveOrderStatus(value: unknown): OAuthPhoneOrderStatus {
@@ -1243,6 +1712,26 @@ function logOAuthPhoneProvider(stage: string, providerId: OAuthPhoneProviderId, 
     providerId,
     ...data,
   });
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R[]>,
+): Promise<R[]> {
+  const results: R[] = [];
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      const mapped = await mapper(items[currentIndex], currentIndex);
+      results.push(...mapped);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 function shouldRetryLegacyNumber(text: string): boolean {

@@ -1,6 +1,8 @@
 import type { ActionResult } from './types';
+import { buildOtpDebugData, findOtpContinueButton, findOtpTarget } from './openai-email-otp-dom';
+import { isPhoneVerificationPage } from './chatgpt-phone-register-page';
 
-export type RegisterReadyKind = 'email' | 'otp' | 'profile';
+export type RegisterReadyKind = 'email' | 'otp' | 'phone-otp' | 'profile';
 
 const EMAIL_SELECTORS = [
   '[data-testid="login-form"] input#email[name="email"][type="email"]',
@@ -14,14 +16,6 @@ const EMAIL_SELECTORS = [
   'input[autocomplete="email"]',
 ];
 
-const OTP_SELECTORS = [
-  'input[name="code"]',
-  'input[name="otp"]',
-  'input[autocomplete="one-time-code"]',
-  'input[inputmode="numeric"]',
-  'input[type="text"]',
-];
-
 type ProfileFormMode = 'age' | 'birthday' | 'unknown';
 
 export function checkRegisterPageReady(kind: RegisterReadyKind): ActionResult {
@@ -30,6 +24,9 @@ export function checkRegisterPageReady(kind: RegisterReadyKind): ActionResult {
   }
   if (kind === 'otp') {
     return checkOtpReady();
+  }
+  if (kind === 'phone-otp') {
+    return checkPhoneOtpReady();
   }
   return checkProfileReady();
 }
@@ -40,9 +37,38 @@ function checkEmailReady(): ActionResult {
   }
   const input = findVisible(EMAIL_SELECTORS) as HTMLInputElement | null;
   if (!input) {
+    if (getUrlEmailParam()) {
+      const button = findSubmitButton(['继续', 'continue', 'email']);
+      if (button) {
+        return ok('登录页已带邮箱参数，继续按钮已就绪', {
+          url: location.href,
+          readyState: document.readyState,
+          urlEmailParamLength: getUrlEmailParam().length,
+          buttonText: compactText(button.textContent || button.ariaLabel || ''),
+        });
+      }
+    }
     return fail('邮箱输入框还没有渲染完成');
   }
   if (!isWritableInput(input)) {
+    if (getUrlEmailParam() && sameEmail(input.value, getUrlEmailParam())) {
+      const button = findSubmitButton(['继续', 'continue', 'email']);
+      if (!button) {
+        return fail('继续按钮还没有渲染完成', {
+          url: location.href,
+          readyState: document.readyState,
+          inputValueLength: input.value.length,
+          urlEmailParamLength: getUrlEmailParam().length,
+        });
+      }
+      return ok('登录页邮箱已预填，继续按钮等待点击', {
+        url: location.href,
+        readyState: document.readyState,
+        inputValueLength: input.value.length,
+        urlEmailParamLength: getUrlEmailParam().length,
+        buttonText: compactText(button.textContent || button.ariaLabel || ''),
+      });
+    }
     return fail('邮箱输入框还不能输入', {
       inputDisabled: input.disabled,
       inputReadOnly: input.readOnly,
@@ -62,13 +88,38 @@ function checkOtpReady(): ActionResult {
   if (location.hostname !== 'auth.openai.com' || !location.pathname.startsWith('/email-verification')) {
     return fail('当前页面不是邮箱验证码页');
   }
-  if (!findVisible(OTP_SELECTORS)) {
-    return fail('验证码输入框还没有渲染完成');
+  const target = findOtpTarget();
+  if (!target) {
+    return fail('验证码输入框还没有渲染完成', buildOtpDebugData());
   }
-  if (!findSubmitButton(['继续', 'continue'])) {
-    return fail('验证码继续按钮还没有渲染完成');
+  const button = findOtpContinueButton();
+  if (!button) {
+    return fail('验证码继续按钮还没有渲染完成', buildOtpDebugData());
   }
-  return ok('验证码输入框已就绪');
+  return ok('验证码输入框已就绪', {
+    otpInputMode: target.kind,
+    otpInputCount: target.inputs.length,
+    continueButtonText: (button.textContent || '').trim().replace(/\s+/g, ' '),
+  });
+}
+
+function checkPhoneOtpReady(): ActionResult {
+  if (!isPhoneVerificationPage()) {
+    return fail('当前页面不是手机验证码页');
+  }
+  const target = findOtpTarget();
+  if (!target) {
+    return fail('手机验证码输入框还没有渲染完成', buildOtpDebugData());
+  }
+  const button = findOtpContinueButton();
+  if (!button) {
+    return fail('手机验证码继续按钮还没有渲染完成', buildOtpDebugData());
+  }
+  return ok('手机验证码输入框已就绪', {
+    otpInputMode: target.kind,
+    otpInputCount: target.inputs.length,
+    continueButtonText: (button.textContent || '').trim().replace(/\s+/g, ' '),
+  });
 }
 
 function checkProfileReady(): ActionResult {
@@ -91,10 +142,20 @@ function checkProfileReady(): ActionResult {
       visibleInputs: visibleProfileInputs().length,
       hasBirthdayInput: Boolean(findBirthdayInput()),
       birthdaySegments: birthdaySegmentState(),
+      profilePendingRender: true,
+      inputCount: document.querySelectorAll('input').length,
+      buttonTexts: visibleButtonTexts(),
     });
   }
   if (!findSubmitButton(['完成帐户创建', '完成账户创建', 'create account', 'continue'])) {
-    return fail('创建账号按钮还没有渲染完成');
+    return fail('创建账号按钮还没有渲染完成', {
+      profileFormMode: formMode,
+      profilePendingRender: true,
+      visibleInputs: visibleProfileInputs().length,
+      hasBirthdayInput: Boolean(findBirthdayInput()),
+      birthdaySegments: birthdaySegmentState(),
+      buttonTexts: visibleButtonTexts(),
+    });
   }
   return ok(
     formMode === 'birthday' ? '资料填写表单已就绪（生日格式）' : '资料填写表单已就绪（年龄格式）',
@@ -205,14 +266,26 @@ function textOf(selector: string): string {
     .join(' ');
 }
 
+function visibleButtonTexts(): string[] {
+  return Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+    .filter(isVisible)
+    .map((button) => compactText(button.textContent || button.ariaLabel || ''))
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
 function isLoginPage(): boolean {
   return (
     location.hostname === 'chatgpt.com' &&
     location.pathname.startsWith('/auth/login')
   ) || (
     location.hostname === 'auth.openai.com' &&
-    location.pathname.startsWith('/log-in')
+    isOpenAiLogInPath(location.pathname)
   );
+}
+
+function isOpenAiLogInPath(pathname: string): boolean {
+  return pathname === '/log-in' || pathname.startsWith('/log-in/');
 }
 
 function findVisible(selectors: string[]): HTMLElement | null {
@@ -279,4 +352,16 @@ function normalizedText(value: string): string {
 
 function compactText(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
+}
+
+function getUrlEmailParam(): string {
+  try {
+    return new URL(location.href).searchParams.get('email') || '';
+  } catch {
+    return '';
+  }
+}
+
+function sameEmail(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
 }

@@ -8,7 +8,7 @@ import type {
 } from './types';
 
 const CHECKOUT_URL = 'https://chatgpt.com/backend-api/payments/checkout';
-const SERVER_CHECKOUT_RAW_URL = 'http://64.176.60.3:8788/checkout/raw';
+const SERVER_CHECKOUT_RAW_URL = 'http://64.176.37.149:8788/checkout/raw';
 const ACCESS_TOKEN_RE = /"accessToken"\s*:\s*"([^"]+)"/;
 const ACCESS_TOKEN_LOOSE_RE = /"accessToken"\s*:\s*"?([A-Za-z0-9_.-]+)/;
 const JWT_RE = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/;
@@ -146,10 +146,17 @@ export async function createCheckoutLinkDirect(
   };
 }
 
-export async function createCheckoutLinkFromServer(raw: string): Promise<CheckoutLinkResponse> {
+export async function createCheckoutLinkFromServer(
+  raw: string,
+  optionsInput: unknown = DEFAULT_CHECKOUT_OPTIONS,
+): Promise<CheckoutLinkResponse> {
   let token: string;
+  let checkoutOptions: CheckoutOptions;
+  let billingDetails: { country: string; currency: string };
   try {
     token = extractAccessToken(raw);
+    checkoutOptions = normalizeCheckoutOptions(optionsInput);
+    billingDetails = billingDetailsForRegion(checkoutOptions.region);
   } catch (error) {
     return fail(errorMessage(error));
   }
@@ -162,7 +169,11 @@ export async function createCheckoutLinkFromServer(raw: string): Promise<Checkou
         Accept: 'application/json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({
+        token,
+        country: billingDetails.country,
+        currency: billingDetails.currency,
+      }),
       cache: 'no-store',
     });
   } catch (error) {
@@ -179,7 +190,9 @@ export async function createCheckoutLinkFromServer(raw: string): Promise<Checkou
     return fail('服务器 API 响应不是 JSON 对象');
   }
 
-  const link = selectServerOutputLink(data);
+  const result = extractCheckoutResult(data, checkoutOptions);
+  const fallbackLink = selectOutputLink(result, checkoutOptions.uiMode);
+  const link = selectServerOutputLink(data) || fallbackLink;
   if (!link) {
     return fail(`服务器 API 未返回订阅链接，响应字段：${Object.keys(data).slice(0, 12).join(', ') || '空'}`);
   }
@@ -189,12 +202,14 @@ export async function createCheckoutLinkFromServer(raw: string): Promise<Checkou
     message: '服务器 API 生成成功',
     url: link,
     link,
-    longUrl: stringValue(data.longUrl) || stringValue(data.long_url) || stringValue(data.providerUrl) || stringValue(data.provider_url),
-    shortUrl: stringValue(data.shortUrl) || stringValue(data.short_url) || stringValue(data.canonicalUrl) || stringValue(data.canonical_url),
-    providerUrl: stringValue(data.providerUrl) || stringValue(data.provider_url) || stringValue(data.stripe_hosted_url) || stringValue(data.checkout_url),
-    canonicalUrl: stringValue(data.canonicalUrl) || stringValue(data.canonical_url),
+    longUrl: stringValue(data.longUrl) || stringValue(data.long_url) || stringValue(data.providerUrl) || stringValue(data.provider_url) || result.providerUrl,
+    shortUrl: stringValue(data.shortUrl) || stringValue(data.short_url) || stringValue(data.canonicalUrl) || stringValue(data.canonical_url) || result.canonicalUrl,
+    providerUrl: stringValue(data.providerUrl) || stringValue(data.provider_url) || stringValue(data.stripe_hosted_url) || stringValue(data.checkout_url) || result.providerUrl,
+    canonicalUrl: stringValue(data.canonicalUrl) || stringValue(data.canonical_url) || result.canonicalUrl,
     raw: data,
     source: 'checkout_server_api',
+    planName: checkoutOptions.planName,
+    billingDetails,
     responseKeys: Object.keys(data).slice(0, 20),
   };
 }

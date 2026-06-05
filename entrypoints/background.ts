@@ -12,6 +12,7 @@ import {
 import { fetchChatGptSession } from '../src/features/link-extractor/session';
 import type {
   ChatGptSessionMessage,
+  ChatGptSessionResponse,
   CheckoutLinkMessage,
   CheckoutLinkResponse,
 } from '../src/features/link-extractor/types';
@@ -66,6 +67,12 @@ import type {
   CookieClearTarget,
 } from '../src/features/settings/types';
 import type { SmsRelayFetchMessage, SmsRelayFetchResponse } from '../src/features/sms/types';
+
+type MessageSenderLike = {
+  tab?: {
+    id?: number;
+  };
+};
 
 const DEFAULT_OUTLOOK_API_BASE = 'http://127.0.0.1:8787';
 const DEFAULT_TIMEOUT_MS = 180_000;
@@ -126,7 +133,7 @@ export default defineBackground(() => {
       return createCheckoutLinkByMode(message);
     }
     if (isChatGptSessionMessage(message)) {
-      return fetchChatGptSession();
+      return fetchChatGptSessionForSender(sender);
     }
     if (isRandomAddressMessage(message)) {
       return fetchRandomAddress(message.countryCode, message.city);
@@ -324,9 +331,115 @@ function cookieUrl(cookie: Browser.cookies.Cookie): string {
 async function createCheckoutLinkByMode(message: CheckoutLinkMessage): Promise<CheckoutLinkResponse> {
   const extractMode = normalizeCheckoutExtractMode(message.extractMode);
   if (extractMode === 'server') {
-    return createCheckoutLinkFromServer(message.raw);
+    return createCheckoutLinkFromServer(message.raw, message.options);
   }
   return createCheckoutLinkDirect(message.raw, message.options);
+}
+
+async function fetchChatGptSessionForSender(sender: MessageSenderLike): Promise<ChatGptSessionResponse> {
+  const tabId = sender.tab?.id;
+  if (typeof tabId !== 'number') {
+    return fetchChatGptSession();
+  }
+
+  try {
+    const results = await browser.scripting.executeScript({
+      target: { tabId },
+      func: fetchChatGptSessionInTab,
+    });
+    const response = results[0]?.result;
+    if (isChatGptSessionResponse(response)) {
+      return response;
+    }
+    return {
+      ok: false,
+      message: '当前标签页返回的 ChatGPT session 结果无效',
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: `无法在当前标签页读取 ChatGPT session：${String(error)}`,
+    };
+  }
+}
+
+async function fetchChatGptSessionInTab(): Promise<ChatGptSessionResponse> {
+  const sessionUrl = 'https://chatgpt.com/api/auth/session';
+  let response: Response;
+  try {
+    response = await fetch(sessionUrl, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      credentials: 'include',
+      cache: 'no-store',
+    });
+  } catch (error) {
+    return fail(`无法请求 ChatGPT session：${String(error)}`);
+  }
+
+  const text = await response.text();
+  const data = parseJson(text);
+  if (!response.ok) {
+    return fail(`ChatGPT session HTTP ${response.status}：${shorten(text || response.statusText)}`);
+  }
+
+  if (!isRecord(data)) {
+    return fail('ChatGPT session 响应不是 JSON 对象');
+  }
+
+  const session = extractSessionInfo(data);
+  if (!session.accessToken) {
+    return {
+      ok: false,
+      message: session.email ? '已读取账号信息，但 session 内没有 accessToken' : '未读取到登录 session',
+      session,
+    };
+  }
+
+  return {
+    ok: true,
+    message: '已从当前标签页读取 ChatGPT session',
+    session,
+  };
+
+  function extractSessionInfo(data: Record<string, unknown>) {
+    const user = isRecord(data.user) ? data.user : {};
+    const account = isRecord(data.account) ? data.account : {};
+    return {
+      email: stringValue(user.email),
+      planType: stringValue(account.planType) || stringValue(account.plan_type),
+      accessToken: stringValue(data.accessToken),
+      sessionToken: stringValue(data.sessionToken) || stringValue(data.session_token),
+      accountId: stringValue(account.id) || stringValue(account.accountId) || stringValue(account.account_id),
+      userId: stringValue(user.id) || stringValue(user.userId) || stringValue(user.user_id),
+      expiresAt: stringValue(data.expires) || stringValue(data.expiresAt) || stringValue(data.expires_at),
+      fetchedAt: Date.now(),
+    };
+  }
+
+  function parseJson(text: string): unknown {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return {};
+    }
+  }
+
+  function stringValue(value: unknown): string {
+    return typeof value === 'string' ? value.trim() : '';
+  }
+
+  function fail(message: string) {
+    return { ok: false, message };
+  }
+
+  function shorten(text: string, limit = 400): string {
+    return String(text || '').replace(/\s+/g, ' ').slice(0, limit);
+  }
+
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value && typeof value === 'object');
+  }
 }
 
 function installContentDriverInjector(): void {
@@ -654,6 +767,9 @@ async function startOAuthPhoneVerification(message: OAuthPhoneStartMessage, send
       : [{ provider: selection.provider, offer: selection.offer }];
     logOAuthPhone('select-offer', {
       providerId: selection.provider.id,
+      activeProviderId: selection.settings.activeProviderId,
+      providerMode: selection.settings.providerMode,
+      sourceMode: selection.settings.sourceMode,
       countryId: selection.offer.countryId,
       countryName: selection.offer.countryName,
       serviceCode: selection.offer.serviceCode,
@@ -665,9 +781,19 @@ async function startOAuthPhoneVerification(message: OAuthPhoneStartMessage, send
       timeoutSeconds: selection.settings.smsTimeoutSeconds,
       selectedOfferCount: selection.settings.selectedOffers.length,
       candidateCount: candidates.length,
+      enabledProviders: selection.settings.providers
+        .filter((provider) => provider.enabled)
+        .map((provider) => ({
+          providerId: provider.id,
+          priority: provider.priority,
+          hasApiKey: Boolean(provider.apiKey.trim()),
+        })),
       candidateQueue: candidates.map(({ provider, offer }, index) => ({
         index: index + 1,
         providerId: provider.id,
+        isActiveProvider: provider.id === selection.settings.activeProviderId,
+        priority: provider.priority,
+        hasApiKey: Boolean(provider.apiKey.trim()),
         countryId: offer.countryId,
         countryName: offer.countryName,
         serviceCode: offer.serviceCode,
@@ -678,6 +804,7 @@ async function startOAuthPhoneVerification(message: OAuthPhoneStartMessage, send
       })),
       selectedOffers: selection.settings.selectedOffers.map((offer) => ({
         providerId: offer.providerId,
+        isActiveProvider: offer.providerId === selection.settings.activeProviderId,
         countryId: offer.countryId,
         countryName: offer.countryName,
         serviceCode: offer.serviceCode,
@@ -740,7 +867,7 @@ async function startOAuthPhoneVerification(message: OAuthPhoneStartMessage, send
         break;
       }
 
-      const cancelResult = await cancelOAuthPhoneOrder(client, selectedProvider, order);
+      const cancelResult = await cancelOAuthPhoneOrder(client, selectedProvider, order, { reason: 'sms-timeout' });
       const message = appendCancelResultMessage(sms.message, cancelResult);
       smsErrors.push(`${maskPhone(order.phoneNumber)}: ${message}`);
       await saveOAuthPhoneRunState(sms.canceled ? 'canceled' : 'requested', message, order);
@@ -1173,7 +1300,7 @@ async function requestAndSubmitOAuthProviderPhone(
       activationId: order.activationId,
     });
     if (!fillPhone.ok) {
-      const cancelResult = await cancelOAuthPhoneOrder(client, provider, order, { retryEarly: false });
+      const cancelResult = await cancelOAuthPhoneOrder(client, provider, order, { retryEarly: false, reason: 'phone-fill-failed' });
       const message = appendCancelResultMessage(fillPhone.message, cancelResult);
       errors.push(formatOAuthPhoneAttemptError(provider, offer, message));
       await saveOAuthPhoneRunState('requested', message, order);
@@ -1197,7 +1324,7 @@ async function requestAndSubmitOAuthProviderPhone(
       return numberResult;
     }
 
-    const cancelResult = await cancelOAuthPhoneOrder(client, provider, order, { retryEarly: false });
+    const cancelResult = await cancelOAuthPhoneOrder(client, provider, order, { retryEarly: false, reason: 'phone-submit-failed' });
     const message = appendCancelResultMessage(submitResult.message, cancelResult);
     errors.push(formatOAuthPhoneAttemptError(provider, offer, message));
     await saveOAuthPhoneRunState(submitResult.fatal ? 'error' : 'requested', message, order);
@@ -1328,6 +1455,12 @@ async function requestOAuthPhoneNumberFromCandidate(
     attempt,
     total,
     providerId: provider.id,
+    providerLabel: client.definition.label,
+    providerSupportsV2: client.definition.supportsV2,
+    providerBaseUrl: client.definition.baseUrl,
+    providerHasApiKey: Boolean(provider.apiKey.trim()),
+    providerPriority: provider.priority,
+    offerProviderId: offer.providerId,
     countryId: numberRequest.countryId,
     countryName: numberRequest.countryName,
     serviceCode: numberRequest.serviceCode,
@@ -1346,7 +1479,7 @@ async function requestOAuthPhoneNumberFromCandidate(
   try {
     const order = await client.requestNumber(provider, numberRequest);
     if (signal?.aborted) {
-      const cancelResult = await cancelOAuthPhoneOrder(client, provider, order, { retryEarly: false });
+      const cancelResult = await cancelOAuthPhoneOrder(client, provider, order, { retryEarly: false, reason: 'aborted-after-number' });
       return {
         ok: false,
         canceled: true,
@@ -1384,7 +1517,7 @@ async function requestOAuthPhoneNumberFromCandidate(
         message,
         retryNext: attempt < total,
       });
-      const cancelResult = await cancelOAuthPhoneOrder(client, provider, order, { retryEarly: false });
+      const cancelResult = await cancelOAuthPhoneOrder(client, provider, order, { retryEarly: false, reason: 'missing-country-iso' });
       logOAuthPhone('number-request-failed-cancel-result', {
         attempt,
         total,
@@ -1890,25 +2023,47 @@ async function cancelOAuthPhoneOrder(
   client: ReturnType<typeof createOAuthPhoneProvider>,
   provider: Parameters<typeof client.setStatus>[0],
   order: OAuthPhoneOrder,
-  options: { retryEarly?: boolean } = {},
+  options: { retryEarly?: boolean; reason?: string } = {},
 ): Promise<{ ok: boolean; message: string }> {
   const retryEarly = options.retryEarly !== false;
+  const reason = options.reason || 'unspecified';
+  const orderSnapshot = {
+    providerId: order.providerId,
+    activationId: order.activationId,
+    countryId: order.countryId,
+    serviceCode: order.serviceCode,
+    cost: order.cost,
+    operator: order.operator,
+    status: order.status,
+    phone: maskPhone(order.phoneNumber),
+  };
   let lastMessage = '';
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     logOAuthPhone('provider-status-cancel', {
+      reason,
       activationId: order.activationId,
       providerId: order.providerId,
+      providerSettingsId: provider.id,
+      clientProviderId: client.definition.id,
+      providerLabel: client.definition.label,
+      providerMatchesOrder: provider.id === order.providerId && client.definition.id === order.providerId,
       attempt,
+      retryEarly,
+      order: orderSnapshot,
     });
     try {
       const result = await client.setStatus(provider, order, 'cancel');
       lastMessage = result.message;
       logOAuthPhone('provider-status-cancel-result', {
+        reason,
         activationId: order.activationId,
         providerId: order.providerId,
+        providerSettingsId: provider.id,
+        clientProviderId: client.definition.id,
         attempt,
         ok: result.ok,
         message: result.message,
+        raw: result.raw,
       });
       if (result.ok) {
         await markOAuthPhoneTrackedOrder(order, 'canceled', result.message || '已取消号码并申请退款', attempt);
@@ -1921,8 +2076,11 @@ async function cancelOAuthPhoneOrder(
     } catch (error) {
       lastMessage = error instanceof Error ? error.message : String(error);
       logOAuthPhone('provider-status-cancel-error', {
+        reason,
         activationId: order.activationId,
         providerId: order.providerId,
+        providerSettingsId: provider.id,
+        clientProviderId: client.definition.id,
         attempt,
         message: lastMessage,
       });
@@ -1933,8 +2091,11 @@ async function cancelOAuthPhoneOrder(
     }
 
     logOAuthPhone('provider-status-cancel-retry', {
+      reason,
       activationId: order.activationId,
       providerId: order.providerId,
+      providerSettingsId: provider.id,
+      clientProviderId: client.definition.id,
       attempt,
       nextDelaySeconds: 20,
       message: lastMessage,
@@ -1957,10 +2118,20 @@ async function cleanupExpiredOAuthPhoneOrders(reason: 'start' | 'stop' | 'manual
   const expiredOrders = activeOrders.filter((order) => order.source === 'local' && now - order.createdAt >= (order.timeoutSeconds || settings.smsTimeoutSeconds || 120) * 1000);
   logOAuthPhone('order-pool-cleanup', {
     reason,
+    activeProviderId: settings.activeProviderId,
+    providerMode: settings.providerMode,
+    enabledProviders: settings.providers
+      .filter((provider) => provider.enabled)
+      .map((provider) => ({
+        providerId: provider.id,
+        priority: provider.priority,
+        hasApiKey: Boolean(provider.apiKey.trim()),
+      })),
     checked: activeOrders.length,
     eligible: expiredOrders.length,
     timeoutSeconds: settings.smsTimeoutSeconds,
     orders: expiredOrders.map((order) => ({
+      source: order.source,
       providerId: order.providerId,
       activationId: order.activationId,
       ageSeconds: Math.round((now - order.createdAt) / 1000),
@@ -1983,7 +2154,7 @@ async function cleanupExpiredOAuthPhoneOrders(reason: 'start' | 'stop' | 'manual
       continue;
     }
     const client = createOAuthPhoneProvider(provider.id);
-    const result = await cancelOAuthPhoneOrder(client, provider, trackedOrderToOrder(tracked));
+    const result = await cancelOAuthPhoneOrder(client, provider, trackedOrderToOrder(tracked), { reason: `expired-cleanup-${reason}` });
     if (result.ok) {
       canceled += 1;
     } else {
@@ -2009,7 +2180,18 @@ async function syncProviderActiveOrdersToLocalPool(): Promise<void> {
       const activeOrders = await client.getActiveOrders(provider);
       logOAuthPhone('provider-active-orders', {
         providerId: provider.id,
+        providerLabel: client.definition.label,
         count: activeOrders.length,
+        orders: activeOrders.map((order) => ({
+          providerId: order.providerId,
+          activationId: order.activationId,
+          countryId: order.countryId,
+          serviceCode: order.serviceCode,
+          cost: order.cost,
+          operator: order.operator,
+          status: order.status,
+          phone: maskPhone(order.phoneNumber),
+        })),
       });
       for (const order of activeOrders) {
         if (!settings.orders.some((tracked) => tracked.id === trackedOrderId(order.providerId, order.activationId))) {
@@ -2149,6 +2331,13 @@ async function cancelStoredOAuthPhoneOrder(): Promise<{ ok: boolean; message: st
   }
 
   const client = createOAuthPhoneProvider(provider.id);
+  logOAuthPhone('provider-status-cancel-state', {
+    reason: 'manual-stop',
+    phoneProviderId: phone.providerId,
+    providerSettingsId: provider.id,
+    trackedProviderId: tracked?.providerId || '',
+    activationId: phone.activationId,
+  });
   const order: OAuthPhoneOrder = {
     providerId: provider.id,
     activationId: phone.activationId,
@@ -2162,7 +2351,7 @@ async function cancelStoredOAuthPhoneOrder(): Promise<{ ok: boolean; message: st
     updatedAt: Date.now(),
     raw: null,
   };
-  const result = await cancelOAuthPhoneOrder(client, provider, order);
+  const result = await cancelOAuthPhoneOrder(client, provider, order, { reason: 'manual-stop' });
   return {
     ok: result.ok,
     message: result.ok
@@ -2926,6 +3115,15 @@ function isChatGptSessionMessage(message: unknown): message is ChatGptSessionMes
     message &&
       typeof message === 'object' &&
       (message as ChatGptSessionMessage).type === 'opx:fetch-chatgpt-session',
+  );
+}
+
+function isChatGptSessionResponse(value: unknown): value is ChatGptSessionResponse {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      typeof (value as ChatGptSessionResponse).ok === 'boolean' &&
+      typeof (value as ChatGptSessionResponse).message === 'string',
   );
 }
 

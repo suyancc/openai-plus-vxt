@@ -142,7 +142,7 @@ email----password----client_id----refresh_token
 服务器接口：
 
 ```http
-POST http://64.176.60.3:8788/checkout/raw
+POST http://64.176.37.149:8788/checkout/raw
 Content-Type: application/json
 
 {"token":"PASTE_TOKEN_HERE"}
@@ -190,7 +190,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-outlook-otp-se
 插件请求的 host permissions 包含：
 
 - 本地 Outlook API：`127.0.0.1:8787`、`localhost:8787`
-- Checkout 服务器 API：`64.176.60.3:8788`
+- Checkout 服务器 API：`64.176.37.149:8788`
 - ChatGPT / OpenAI Auth / OpenAI Pay
 - PayPal
 - meiguodizhi 地址资料站点

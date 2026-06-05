@@ -1,0 +1,39 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - heading "Outlook 邮件内容提取" [level=1] [ref=e5]
+      - paragraph [ref=e6]: 输入 Outlook 账号行，拉取最近邮件并提取验证码和正文。
+    - generic [ref=e7]: 等待输入
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - heading "输入内容" [level=2] [ref=e11]
+        - generic [ref=e12]:
+          - button "清空" [ref=e13] [cursor=pointer]
+          - button "提取" [ref=e14] [cursor=pointer]
+      - textbox "email----password----client_id----refresh_token" [ref=e15]
+    - generic [ref=e16]:
+      - generic [ref=e17]:
+        - heading "提取结果" [level=2] [ref=e18]
+        - button "复制验证码" [disabled] [ref=e20]
+      - generic [ref=e21]:
+        - generic [ref=e22]:
+          - generic [ref=e23]:
+            - generic [ref=e24]: 验证码
+            - generic [ref=e25]: "-"
+          - generic [ref=e26]: 未提取
+        - generic [ref=e27]:
+          - term [ref=e28]: 主题
+          - definition [ref=e29]: "-"
+          - term [ref=e30]: 发件人
+          - definition [ref=e31]: "-"
+          - term [ref=e32]: 收件人
+          - definition [ref=e33]: "-"
+          - term [ref=e34]: 日期
+          - definition [ref=e35]: "-"
+          - term [ref=e36]: 候选
+          - definition [ref=e37]: "-"
+          - term [ref=e38]: 长度
+          - definition [ref=e39]: "-"
+        - paragraph [ref=e40]: 正文预览
+        - generic [ref=e41]: "-"

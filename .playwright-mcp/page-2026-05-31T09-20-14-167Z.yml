@@ -1,0 +1,42 @@
+- generic [ref=e3]:
+  - generic "语言" [ref=e5]:
+    - button "简体中文" [ref=e7] [cursor=pointer]:
+      - generic [ref=e8]: 简体中文
+      - img [ref=e9]
+  - generic [ref=e11]:
+    - region "Fox SMS" [ref=e12]:
+      - generic [ref=e13]:
+        - img "Fox SMS logo" [ref=e15]
+        - generic [ref=e16]:
+          - heading "Fox SMS" [level=1] [ref=e17]
+          - paragraph [ref=e18]: 验证码接收服务平台
+      - generic [ref=e19]:
+        - generic [ref=e20]: 专业接码平台 · 稳定在线运营
+        - generic [ref=e21]: 为开发者与业务场景提供高可用验证码接收服务。
+      - generic [ref=e22]:
+        - generic [ref=e23]:
+          - generic [ref=e24]: "01"
+          - generic [ref=e25]: 覆盖全球热门项目
+        - generic [ref=e26]:
+          - generic [ref=e27]: "02"
+          - generic [ref=e28]: 支持指定号码筛选
+        - generic [ref=e29]:
+          - generic [ref=e30]: "03"
+          - generic [ref=e31]: 实时记录与接口管理
+      - paragraph [ref=e33]: © 2025 Fox SMS
+    - generic [ref=e35]:
+      - generic [ref=e36]:
+        - heading "欢迎回来" [level=2] [ref=e37]
+        - paragraph [ref=e38]: 登录您的用户账户
+      - generic [ref=e39]:
+        - generic [ref=e40]:
+          - generic [ref=e41]: 用户名
+          - textbox "4-6位英文字母" [ref=e43]
+        - generic [ref=e44]:
+          - generic [ref=e45]: 密码
+          - generic [ref=e46]:
+            - textbox "至少8位，含大小写字母、数字和符号" [ref=e47]
+            - button "显示" [ref=e48] [cursor=pointer]:
+              - img "显示" [ref=e49]
+        - button "登录系统" [ref=e51] [cursor=pointer]
+      - button "没有账户，立即注册" [ref=e53] [cursor=pointer]

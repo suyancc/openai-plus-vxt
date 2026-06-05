@@ -656,6 +656,12 @@ textarea {
   color: #fecaca;
 }
 
+.provider-badge-foxsms {
+  border-color: rgba(45, 212, 191, 0.44);
+  background: rgba(20, 184, 166, 0.16);
+  color: #99f6e4;
+}
+
 .openai-channel-badge {
   display: inline-flex;
   align-items: center;

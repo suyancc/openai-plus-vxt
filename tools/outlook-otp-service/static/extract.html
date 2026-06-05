@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Outlook 快速取件</title>
+  <style>
+    :root {
+      --bg: #f5f6f2;
+      --panel: #ffffff;
+      --panel-soft: #f9faf7;
+      --ink: #20241f;
+      --muted: #687064;
+      --line: #d9dfd3;
+      --accent: #0f766e;
+      --accent-dark: #115e59;
+      --accent-soft: #e8f5f1;
+      --warn: #b45309;
+      --danger: #b91c1c;
+      --code: #eef3ef;
+      --shadow: 0 14px 34px rgba(32, 36, 31, 0.10);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        linear-gradient(135deg, rgba(15, 118, 110, 0.08), transparent 34%),
+        linear-gradient(315deg, rgba(180, 83, 9, 0.06), transparent 30%),
+        var(--bg);
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+
+    main {
+      width: min(1440px, calc(100vw - 28px));
+      margin: 0 auto;
+      padding: 22px 0 28px;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 14px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 26px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .status {
+      min-height: 34px;
+      max-width: 520px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.76);
+      color: var(--muted);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .status[data-kind="ok"] {
+      color: var(--accent-dark);
+      border-color: rgba(15, 118, 110, 0.26);
+      background: rgba(15, 118, 110, 0.08);
+    }
+
+    .status[data-kind="error"] {
+      color: var(--danger);
+      border-color: rgba(185, 28, 28, 0.25);
+      background: rgba(185, 28, 28, 0.08);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    section {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+
+    .tools {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    button,
+    select,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      padding: 0 12px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: var(--accent-dark);
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.65;
+    }
+
+    .ghost {
+      color: var(--ink);
+      border-color: var(--line);
+      background: #fff;
+    }
+
+    .ghost:hover {
+      background: #f3f5f1;
+    }
+
+    textarea {
+      display: block;
+      width: 100%;
+      min-height: 170px;
+      resize: vertical;
+      padding: 12px;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      outline: none;
+      color: var(--ink);
+      background: transparent;
+      font: 12px/1.5 Consolas, "Cascadia Mono", monospace;
+      tab-size: 2;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      padding: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    input,
+    select {
+      width: 100%;
+      min-height: 34px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      outline: none;
+    }
+
+    .control-actions {
+      display: flex;
+      gap: 8px;
+      padding: 0 12px 12px;
+    }
+
+    .control-actions button {
+      flex: 1;
+    }
+
+    .account-meta {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      background: var(--panel-soft);
+      font-size: 12px;
+    }
+
+    .account-meta strong {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    .results {
+      display: grid;
+      grid-template-rows: auto minmax(260px, 40vh) auto;
+    }
+
+    .summary {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .pill.otp {
+      border-color: rgba(15, 118, 110, 0.24);
+      background: var(--accent-soft);
+      color: var(--accent-dark);
+      font-weight: 600;
+    }
+
+    .message-list {
+      min-height: 260px;
+      overflow: auto;
+      padding: 12px;
+      background: rgba(249, 250, 247, 0.72);
+    }
+
+    .message-card {
+      display: grid;
+      gap: 7px;
+      width: 100%;
+      margin-bottom: 10px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .message-card:hover,
+    .message-card.active {
+      border-color: rgba(15, 118, 110, 0.35);
+      background: #fbfefd;
+    }
+
+    .message-card.active {
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+
+    .message-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .message-subject {
+      font-size: 14px;
+      font-weight: 650;
+      overflow-wrap: anywhere;
+    }
+
+    .message-preview {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .message-foot {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .empty-state {
+      display: grid;
+      place-items: center;
+      min-height: 220px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 13px;
+    }
+
+    .detail {
+      border-top: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .detail-head {
+      display: grid;
+      gap: 8px;
+      padding: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .detail-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .detail-title {
+      margin: 0;
+      font-size: 17px;
+      letter-spacing: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .otp-value {
+      color: var(--accent-dark);
+      font-size: 24px;
+      font-weight: 750;
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+
+    .detail-meta {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr);
+      gap: 6px 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .detail-meta span:nth-child(even) {
+      color: var(--ink);
+      overflow-wrap: anywhere;
+    }
+
+    .body-tabs {
+      display: flex;
+      gap: 8px;
+      padding: 10px 14px 0;
+    }
+
+    .body-tabs button {
+      min-height: 30px;
+      color: var(--ink);
+      border-color: var(--line);
+      background: #fff;
+    }
+
+    .body-tabs button.active {
+      color: #fff;
+      border-color: var(--accent);
+      background: var(--accent);
+    }
+
+    pre,
+    iframe {
+      width: calc(100% - 28px);
+      min-height: 260px;
+      max-height: 44vh;
+      margin: 12px 14px 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--code);
+    }
+
+    pre {
+      overflow: auto;
+      padding: 12px;
+      color: var(--ink);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font: 12px/1.5 Consolas, "Cascadia Mono", monospace;
+    }
+
+    iframe {
+      display: none;
+      background: #fff;
+    }
+
+    .body-html iframe {
+      display: block;
+    }
+
+    .body-html pre {
+      display: none;
+    }
+
+    @media (max-width: 980px) {
+      main {
+        width: min(100vw - 20px, 760px);
+        padding-top: 16px;
+      }
+
+      header,
+      .workspace {
+        display: block;
+      }
+
+      .status {
+        margin-top: 10px;
+      }
+
+      .workspace > section {
+        margin-bottom: 12px;
+      }
+
+      .results {
+        grid-template-rows: auto minmax(240px, auto) auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Outlook 快速取件</h1>
+        <p class="subtitle">输入账号行拉取最近多封邮件，点击卡片再读取完整正文。</p>
+      </div>
+      <div id="status" class="status">等待输入</div>
+    </header>
+
+    <div class="workspace">
+      <section>
+        <div class="section-head">
+          <h2>账号与筛选</h2>
+          <div class="tools">
+            <button id="clearButton" class="ghost" type="button">清空</button>
+          </div>
+        </div>
+        <textarea id="content" spellcheck="false" placeholder="email----password----client_id----refresh_token"></textarea>
+        <div class="form-grid">
+          <label>
+            数量
+            <select id="limit">
+              <option value="5">5 封</option>
+              <option value="10" selected>10 封</option>
+              <option value="20">20 封</option>
+              <option value="30">30 封</option>
+            </select>
+          </label>
+          <label>
+            邮箱目录
+            <select id="mailbox">
+              <option value="default" selected>INBOX + Junk</option>
+              <option value="INBOX">INBOX</option>
+              <option value="Junk">Junk</option>
+            </select>
+          </label>
+          <label>
+            关键词
+            <input id="query" type="text" placeholder="可选，仅 ASCII">
+          </label>
+          <label>
+            范围
+            <select id="unseenOnly">
+              <option value="false" selected>全部邮件</option>
+              <option value="true">仅未读</option>
+            </select>
+          </label>
+        </div>
+        <div class="control-actions">
+          <button id="fetchButton" type="button">拉取邮件</button>
+          <button id="copyOtpButton" class="ghost" type="button">复制验证码</button>
+        </div>
+        <div class="account-meta">
+          <div>账号：<strong id="accountEmail">-</strong></div>
+          <div>协议：<strong id="accountMode">OAuth/IMAP</strong></div>
+          <div>目录：<strong id="fetchedMailboxes">-</strong></div>
+        </div>
+      </section>
+
+      <section class="results">
+        <div class="section-head">
+          <h2>邮件列表</h2>
+          <div class="summary">
+            <span id="totalCount" class="pill">0 封</span>
+            <span id="otpCount" class="pill otp">OTP 0</span>
+          </div>
+        </div>
+        <div id="messageList" class="message-list">
+          <div class="empty-state">输入账号行后点击拉取邮件</div>
+        </div>
+        <div id="detail" class="detail">
+          <div class="detail-head">
+            <div class="detail-title-row">
+              <h2 id="detailSubject" class="detail-title">未选择邮件</h2>
+              <div id="detailOtp" class="otp-value">-</div>
+            </div>
+            <div class="detail-meta">
+              <span>发件人</span><span id="detailFrom">-</span>
+              <span>收件人</span><span id="detailTo">-</span>
+              <span>时间</span><span id="detailDate">-</span>
+              <span>位置</span><span id="detailLocation">-</span>
+            </div>
+          </div>
+          <div class="body-tabs">
+            <button id="textTab" class="active" type="button">文本</button>
+            <button id="htmlTab" type="button">HTML</button>
+          </div>
+          <div id="bodyWrap">
+            <pre id="detailBody">-</pre>
+            <iframe id="detailHtml" sandbox="allow-same-origin"></iframe>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const state = {
+      accountLine: "",
+      messages: [],
+      selectedId: "",
+      latestOtp: "",
+      htmlMode: false
+    };
+
+    const el = {
+      content: document.getElementById("content"),
+      limit: document.getElementById("limit"),
+      mailbox: document.getElementById("mailbox"),
+      query: document.getElementById("query"),
+      unseenOnly: document.getElementById("unseenOnly"),
+      fetchButton: document.getElementById("fetchButton"),
+      clearButton: document.getElementById("clearButton"),
+      copyOtpButton: document.getElementById("copyOtpButton"),
+      status: document.getElementById("status"),
+      accountEmail: document.getElementById("accountEmail"),
+      accountMode: document.getElementById("accountMode"),
+      fetchedMailboxes: document.getElementById("fetchedMailboxes"),
+      totalCount: document.getElementById("totalCount"),
+      otpCount: document.getElementById("otpCount"),
+      messageList: document.getElementById("messageList"),
+      detailSubject: document.getElementById("detailSubject"),
+      detailOtp: document.getElementById("detailOtp"),
+      detailFrom: document.getElementById("detailFrom"),
+      detailTo: document.getElementById("detailTo"),
+      detailDate: document.getElementById("detailDate"),
+      detailLocation: document.getElementById("detailLocation"),
+      detailBody: document.getElementById("detailBody"),
+      detailHtml: document.getElementById("detailHtml"),
+      bodyWrap: document.getElementById("bodyWrap"),
+      textTab: document.getElementById("textTab"),
+      htmlTab: document.getElementById("htmlTab")
+    };
+
+    function setStatus(text, kind = "") {
+      el.status.textContent = text;
+      if (kind) {
+        el.status.dataset.kind = kind;
+      } else {
+        delete el.status.dataset.kind;
+      }
+    }
+
+    function clean(value) {
+      const text = String(value || "").trim();
+      return text || "-";
+    }
+
+    function compact(value, limit = 180) {
+      const text = String(value || "").replace(/\s+/g, " ").trim();
+      return text.length > limit ? `${text.slice(0, limit - 1)}...` : text;
+    }
+
+    function formatDate(value) {
+      if (!value) return "-";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleString("zh-CN", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+    }
+
+    function messageKey(message) {
+      return String(message.id || `${message.mailbox || ""}:${message.uid || ""}` || message.message_id || "");
+    }
+
+    function setAccount(payload) {
+      const account = payload.account || {};
+      el.accountEmail.textContent = clean(account.email);
+      el.accountMode.textContent = clean(account.auth_mode || (account.has_oauth ? "oauth" : "password"));
+      el.fetchedMailboxes.textContent = Array.isArray(payload.fetched_mailboxes) && payload.fetched_mailboxes.length
+        ? payload.fetched_mailboxes.join(", ")
+        : clean(payload.mailbox);
+    }
+
+    function renderMessages(selectedMessage = null) {
+      const otpMessages = state.messages.filter(item => String(item.otp || "").trim());
+      el.totalCount.textContent = `${state.messages.length} 封`;
+      el.otpCount.textContent = `OTP ${otpMessages.length}`;
+
+      if (!state.messages.length) {
+        el.messageList.innerHTML = '<div class="empty-state">没有拉取到邮件</div>';
+        renderDetail(null);
+        return;
+      }
+
+      const activeKey = selectedMessage ? messageKey(selectedMessage) : state.selectedId;
+      el.messageList.innerHTML = state.messages.map((message, index) => {
+        const key = messageKey(message) || String(index);
+        const active = key === activeKey ? " active" : "";
+        const preview = compact(message.preview_text || message.text_body || message.body_excerpt || "", 220);
+        const otp = clean(message.otp);
+        return `
+          <article class="message-card${active}" data-key="${escapeAttr(key)}">
+            <div class="message-top">
+              <span>${escapeHtml(clean(message.from_addr))}</span>
+              <span>${escapeHtml(formatDate(message.date))}</span>
+            </div>
+            <div class="message-subject">${escapeHtml(clean(message.subject))}</div>
+            <div class="message-preview">${escapeHtml(preview || "-")}</div>
+            <div class="message-foot">
+              <span class="pill">${escapeHtml(clean(message.mailbox))}</span>
+              ${message.partial ? '<span class="pill">预览</span>' : '<span class="pill">完整</span>'}
+              ${message.otp ? `<span class="pill otp">${escapeHtml(otp)}</span>` : ""}
+            </div>
+          </article>
+        `;
+      }).join("");
+
+      el.messageList.querySelectorAll(".message-card").forEach(card => {
+        card.addEventListener("click", () => {
+          const key = card.dataset.key || "";
+          const message = state.messages.find(item => messageKey(item) === key);
+          if (message) selectMessage(message);
+        });
+      });
+    }
+
+    function renderDetail(message) {
+      if (!message) {
+        state.selectedId = "";
+        state.latestOtp = "";
+        el.detailSubject.textContent = "未选择邮件";
+        el.detailOtp.textContent = "-";
+        el.detailFrom.textContent = "-";
+        el.detailTo.textContent = "-";
+        el.detailDate.textContent = "-";
+        el.detailLocation.textContent = "-";
+        el.detailBody.textContent = "-";
+        el.detailHtml.removeAttribute("srcdoc");
+        el.copyOtpButton.disabled = true;
+        return;
+      }
+
+      state.selectedId = messageKey(message);
+      state.latestOtp = String(message.otp || "").trim();
+      el.detailSubject.textContent = clean(message.subject);
+      el.detailOtp.textContent = state.latestOtp || "-";
+      el.detailFrom.textContent = clean(message.from_addr);
+      el.detailTo.textContent = clean(message.to_addr);
+      el.detailDate.textContent = clean(message.date);
+      el.detailLocation.textContent = `${clean(message.mailbox)} / UID ${clean(message.uid)}`;
+      el.detailBody.textContent = clean(message.text_body || message.body_excerpt || message.preview_text || message.raw_excerpt);
+      if (message.html_body) {
+        el.detailHtml.setAttribute("srcdoc", message.html_body);
+      } else {
+        el.detailHtml.removeAttribute("srcdoc");
+      }
+      el.copyOtpButton.disabled = !state.latestOtp;
+      setBodyMode(state.htmlMode && Boolean(message.html_body));
+    }
+
+    async function fetchMessages() {
+      const accountLine = el.content.value.trim();
+      if (!accountLine) {
+        setStatus("请先输入账号行", "error");
+        el.content.focus();
+        return;
+      }
+
+      state.accountLine = accountLine;
+      el.fetchButton.disabled = true;
+      setStatus("正在拉取邮件...");
+      el.messageList.innerHTML = '<div class="empty-state">正在连接 Outlook...</div>';
+
+      try {
+        const response = await fetch("/api/outlook/extract", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content: accountLine,
+            limit: Number(el.limit.value || 10),
+            mailbox: el.mailbox.value,
+            query: el.query.value.trim(),
+            unseen_only: el.unseenOnly.value === "true"
+          })
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.detail || "拉取失败");
+        }
+
+        state.messages = Array.isArray(payload.messages) ? payload.messages : [];
+        const selected = payload.message || state.messages.find(item => item.otp) || state.messages[0] || null;
+        setAccount(payload);
+        renderMessages(selected);
+        if (selected) {
+          const key = messageKey(selected);
+          const existing = state.messages.findIndex(item => messageKey(item) === key);
+          if (existing >= 0) state.messages[existing] = selected;
+          renderDetail(selected);
+          renderMessages(selected);
+        } else {
+          renderDetail(null);
+        }
+        setStatus(`拉取完成：${state.messages.length} 封`, "ok");
+      } catch (error) {
+        setStatus(error.message || "拉取失败", "error");
+      } finally {
+        el.fetchButton.disabled = false;
+      }
+    }
+
+    async function selectMessage(message) {
+      renderDetail(message);
+      renderMessages(message);
+      const uid = String(message.uid || "").trim();
+      const mailbox = String(message.mailbox || "INBOX").trim() || "INBOX";
+      if (!uid || !state.accountLine || message.partial === false && message.text_body) {
+        return;
+      }
+
+      setStatus(`正在读取完整邮件 UID ${uid}...`);
+      try {
+        const response = await fetch("/api/outlook/message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            account_line: state.accountLine,
+            uid,
+            mailbox
+          })
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.detail || "读取完整邮件失败");
+        }
+        const full = payload.message || {};
+        const key = messageKey(message);
+        const index = state.messages.findIndex(item => messageKey(item) === key);
+        const merged = { ...message, ...full, partial: false };
+        if (index >= 0) state.messages[index] = merged;
+        renderDetail(merged);
+        renderMessages(merged);
+        setStatus("完整邮件已读取", "ok");
+      } catch (error) {
+        setStatus(error.message || "读取完整邮件失败", "error");
+      }
+    }
+
+    function setBodyMode(htmlMode) {
+      state.htmlMode = Boolean(htmlMode);
+      el.bodyWrap.classList.toggle("body-html", state.htmlMode);
+      el.textTab.classList.toggle("active", !state.htmlMode);
+      el.htmlTab.classList.toggle("active", state.htmlMode);
+    }
+
+    function clearAll() {
+      el.content.value = "";
+      state.accountLine = "";
+      state.messages = [];
+      setAccount({});
+      renderMessages(null);
+      renderDetail(null);
+      setStatus("已清空");
+      el.content.focus();
+    }
+
+    function escapeHtml(value) {
+      return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value).replace(/`/g, "&#96;");
+    }
+
+    el.fetchButton.addEventListener("click", fetchMessages);
+    el.clearButton.addEventListener("click", clearAll);
+    el.copyOtpButton.addEventListener("click", async () => {
+      if (!state.latestOtp) return;
+      await navigator.clipboard.writeText(state.latestOtp);
+      setStatus("验证码已复制", "ok");
+    });
+    el.textTab.addEventListener("click", () => setBodyMode(false));
+    el.htmlTab.addEventListener("click", () => setBodyMode(true));
+    el.content.addEventListener("keydown", event => {
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        fetchMessages();
+      }
+    });
+
+    el.copyOtpButton.disabled = true;
+  </script>
+</body>
+</html>

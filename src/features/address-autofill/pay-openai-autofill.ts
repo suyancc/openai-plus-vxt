@@ -5,17 +5,149 @@ import type { AddressProfile, RandomAddressResponse } from './types';
 
 const LOG_PREFIX = '[OPX Pay Autofill]';
 const PAYPAL_SELECTORS = [
+  'button#paypal-tab',
+  'button[data-testid="paypal"]',
+  '[role="tab"][value="paypal"]',
+  '[aria-controls="paypal-panel"]',
   '[data-testid="paypal-accordion-item"]',
   '#payment-method-accordion-item-title-paypal',
   'button[data-testid="paypal-accordion-item-button"]',
   'button[aria-label*="PayPal"]',
   'button[aria-label*="paypal" i]',
 ];
+const STRIPE_ADDRESS_IFRAME_SELECTOR = [
+  'iframe[src*="elements-inner-address"]',
+  'iframe[title*="地址"]',
+  'iframe[title*="address" i]',
+].join(',');
 const OPENAI_RANDOM_BUTTON_ID = 'opx-openai-pay-random-fill';
 const AUTOCOMPLETE_DROPDOWN_SELECTOR = '.AutocompleteInput-dropdown-container';
 const AUTOCOMPLETE_HIDE_STYLE_ID = 'opx-openai-pay-autocomplete-hide-style';
 const MAX_AUTO_AUTOFILL_ATTEMPTS = 4;
-const ZERO_AMOUNT_SUBMIT_BUTTON_SELECTOR = 'button[data-testid="hosted-payment-submit-button"]';
+const ZERO_AMOUNT_SUBMIT_BUTTON_SELECTOR = [
+  'button[data-testid="hosted-payment-submit-button"]',
+  'button[type="submit"][form]',
+  'button[type="submit"].btn-primary',
+  'button[type="submit"].SubmitButton',
+  'form button[type="submit"]',
+].join(',');
+const JAPAN_PREFECTURE_LABELS: Record<string, string> = {
+  hokkaido: '北海道',
+  aomori: '青森県',
+  iwate: '岩手県',
+  miyagi: '宮城県',
+  akita: '秋田県',
+  yamagata: '山形県',
+  fukushima: '福島県',
+  ibaraki: '茨城県',
+  tochigi: '栃木県',
+  gunma: '群馬県',
+  saitama: '埼玉県',
+  chiba: '千葉県',
+  tokyo: '東京都',
+  kanagawa: '神奈川県',
+  niigata: '新潟県',
+  toyama: '富山県',
+  ishikawa: '石川県',
+  fukui: '福井県',
+  yamanashi: '山梨県',
+  nagano: '長野県',
+  gifu: '岐阜県',
+  shizuoka: '静岡県',
+  aichi: '愛知県',
+  mie: '三重県',
+  shiga: '滋賀県',
+  kyoto: '京都府',
+  osaka: '大阪府',
+  hyogo: '兵庫県',
+  nara: '奈良県',
+  wakayama: '和歌山県',
+  tottori: '鳥取県',
+  shimane: '島根県',
+  okayama: '岡山県',
+  hiroshima: '広島県',
+  yamaguchi: '山口県',
+  tokushima: '徳島県',
+  kagawa: '香川県',
+  ehime: '愛媛県',
+  kochi: '高知県',
+  fukuoka: '福岡県',
+  saga: '佐賀県',
+  nagasaki: '長崎県',
+  kumamoto: '熊本県',
+  oita: '大分県',
+  miyazaki: '宮崎県',
+  kagoshima: '鹿児島県',
+  okinawa: '沖縄県',
+};
+const JAPAN_CITY_PREFECTURE_LABELS: Record<string, string> = {
+  sapporo: '北海道',
+  sendai: '宮城県',
+  saitama: '埼玉県',
+  chiba: '千葉県',
+  tokyo: '東京都',
+  yokohama: '神奈川県',
+  kawasaki: '神奈川県',
+  niigata: '新潟県',
+  shizuoka: '静岡県',
+  nagoya: '愛知県',
+  kyoto: '京都府',
+  osaka: '大阪府',
+  kobe: '兵庫県',
+  hiroshima: '広島県',
+  fukuoka: '福岡県',
+  kumamoto: '熊本県',
+  naha: '沖縄県',
+};
+const JAPAN_PREFECTURE_VALUES_BY_LABEL: Record<string, string> = {
+  北海道: 'Hokkaido',
+  青森県: 'Aomori',
+  岩手県: 'Iwate',
+  宮城県: 'Miyagi',
+  秋田県: 'Akita',
+  山形県: 'Yamagata',
+  福島県: 'Fukushima',
+  茨城県: 'Ibaraki',
+  栃木県: 'Tochigi',
+  群馬県: 'Gunma',
+  埼玉県: 'Saitama',
+  千葉県: 'Chiba',
+  東京都: 'Tokyo',
+  神奈川県: 'Kanagawa',
+  新潟県: 'Niigata',
+  富山県: 'Toyama',
+  石川県: 'Ishikawa',
+  福井県: 'Fukui',
+  山梨県: 'Yamanashi',
+  長野県: 'Nagano',
+  岐阜県: 'Gifu',
+  静岡県: 'Shizuoka',
+  愛知県: 'Aichi',
+  三重県: 'Mie',
+  滋賀県: 'Shiga',
+  京都府: 'Kyoto',
+  大阪府: 'Osaka',
+  兵庫県: 'Hyogo',
+  奈良県: 'Nara',
+  和歌山県: 'Wakayama',
+  鳥取県: 'Tottori',
+  島根県: 'Shimane',
+  岡山県: 'Okayama',
+  広島県: 'Hiroshima',
+  山口県: 'Yamaguchi',
+  徳島県: 'Tokushima',
+  香川県: 'Kagawa',
+  愛媛県: 'Ehime',
+  高知県: 'Kochi',
+  福岡県: 'Fukuoka',
+  佐賀県: 'Saga',
+  長崎県: 'Nagasaki',
+  熊本県: 'Kumamoto',
+  大分県: 'Oita',
+  宮崎県: 'Miyazaki',
+  鹿児島県: 'Kagoshima',
+  沖縄県: 'Okinawa',
+};
 
 interface StorageChangeValue {
   oldValue?: unknown;
@@ -63,7 +195,7 @@ let paypalClickAttempts = 0;
 let zeroAmountSubmitKey = '';
 
 export function checkPayOpenAiCheckoutReady(): { ok: boolean; message: string; data?: unknown } {
-  if (location.hostname !== 'pay.openai.com') {
+  if (!isSupportedOpenAiCheckoutHost()) {
     return { ok: false, message: '当前不是 OpenAI 支付页', data: currentPaymentPageData('not-openai-pay') };
   }
   if (!isLiveCheckoutSessionPage()) {
@@ -75,7 +207,7 @@ export function checkPayOpenAiCheckoutReady(): { ok: boolean; message: string; d
   if (!amount.found && !paypalButton && !submitButton) {
     return { ok: false, message: 'OpenAI 订阅页订单信息尚未渲染', data: currentPaymentPageData('loading') };
   }
-  if (amount.found && !paypalButton) {
+  if (amount.found && !paypalButton && !isChatGptCheckoutPage()) {
     return {
       ok: false,
       message: 'OpenAI 订阅页没有 PayPal 支付选项，当前邮箱不可用',
@@ -83,6 +215,13 @@ export function checkPayOpenAiCheckoutReady(): { ok: boolean; message: string; d
         ...currentPaymentPageData('openai-checkout-no-paypal'),
         paypalUnavailable: true,
       },
+    };
+  }
+  if (amount.found && !paypalButton && isChatGptCheckoutPage()) {
+    return {
+      ok: true,
+      message: `OpenAI 订阅页已就绪，应付金额 ${amount.text}，PayPal 选项将在 Stripe 子框架内选择`,
+      data: currentPaymentPageData('openai-checkout-stripe-payment-frame'),
     };
   }
   return {
@@ -93,7 +232,7 @@ export function checkPayOpenAiCheckoutReady(): { ok: boolean; message: string; d
 }
 
 export async function submitOpenAiCheckoutNow(address: AddressProfile): Promise<PayOpenAiFillResult> {
-  if (location.hostname !== 'pay.openai.com') {
+  if (!isSupportedOpenAiCheckoutHost()) {
     return { ok: false, filled: 0, message: '当前不是 OpenAI 支付页' };
   }
   if (!isLiveCheckoutSessionPage()) {
@@ -105,7 +244,7 @@ export async function submitOpenAiCheckoutNow(address: AddressProfile): Promise<
 }
 
 export function initPayOpenAiAddressAutofill(): void {
-  if (initialized || location.hostname !== 'pay.openai.com') {
+  if (initialized || !isSupportedOpenAiCheckoutHost()) {
     return;
   }
 
@@ -173,8 +312,8 @@ export async function fillPayOpenAiAddressNow(
   address: AddressProfile,
   options: { force?: boolean } = { force: true },
 ): Promise<PayOpenAiFillResult> {
-  if (location.hostname !== 'pay.openai.com') {
-    return { ok: false, filled: 0, message: '当前不是 pay.openai.com 页面' };
+  if (!isSupportedOpenAiCheckoutHost()) {
+    return { ok: false, filled: 0, message: '当前不是 OpenAI checkout 页面' };
   }
 
   const addressKey = createAddressKey(address);
@@ -226,7 +365,8 @@ export async function fillPayOpenAiAddressNow(
       };
     }
 
-    if (!hasVisibleBillingFields() && !checkoutContainsAddressValues(address)) {
+    const hasStripeAddressFrame = hasStripeAddressElementFrame();
+    if (!hasVisibleBillingFields() && !hasStripeAddressFrame && !checkoutContainsAddressValues(address)) {
       return {
         ok: false,
         filled: 0,
@@ -237,12 +377,12 @@ export async function fillPayOpenAiAddressNow(
       };
     }
 
-    const filled = await fillCheckoutFields(address);
+    const filled = hasStripeAddressFrame ? 0 : await fillCheckoutFields(address);
     if (filled > 0 || checkoutContainsAddressValues(address)) {
       filledAddressKey = addressKey;
     }
     hideAutocompleteDropdowns();
-    const filledOk = filled > 0 || filledAddressKey === addressKey;
+    const filledOk = filled > 0 || filledAddressKey === addressKey || hasStripeAddressFrame;
     const submitResult: PaymentSubmitResult = filledOk
       ? await trySubmitZeroAmountCheckout(addressKey)
       : { message: '', canRetry: false, submitted: false, requiresSubmit: false };
@@ -258,6 +398,8 @@ export async function fillPayOpenAiAddressNow(
         ? `已填写 OpenAI 支付页 ${filled} 项`
         : filledAddressKey === addressKey
           ? 'OpenAI 支付页已存在当前地址'
+          : hasStripeAddressFrame
+            ? '检测到 Stripe 地址组件，已等待子框架地址填写'
           : '未找到可填写的 OpenAI 支付字段', submitResult.message),
     };
   } finally {
@@ -342,6 +484,7 @@ async function fetchFreshAddressAndFill(button: HTMLButtonElement, status: HTMLE
 
 async function fillCheckoutFields(address: AddressProfile): Promise<number> {
   let filled = 0;
+  const administrativeArea = resolveBillingAdministrativeArea(address);
 
   filled += fillInput('#billingName', address.fullName, true);
   filled += fillSelect('#billingCountry', address.countryCode, [address.countryLabel, address.countryCode]);
@@ -353,26 +496,79 @@ async function fillCheckoutFields(address: AddressProfile): Promise<number> {
   filled += fillInput('#billingAddressLine1', address.line1, true);
   filled += fillInput('#billingAddressLine2', address.line2, true);
   filled += fillInput('#billingLocality', address.city, true);
-  filled += fillSelectOrInput('#billingAdministrativeArea', address.state, [address.stateFull, address.state]);
   filled += fillInput('#billingPostalCode', address.postalCode, true);
+  filled += fillSelectOrInput('#billingAdministrativeArea', administrativeArea.value, administrativeArea.labels);
+  filled += fillSelectOrInput('#billingAddress-administrativeAreaInput', administrativeArea.value, administrativeArea.labels);
   filled += fillInput('#phoneNumber', address.phone, false);
 
   filled += fillByAutocomplete('billing address-line1', address.line1);
   filled += fillByAutocomplete('billing address-line2', address.line2);
   filled += fillByAutocomplete('billing address-level2', address.city);
   filled += fillByAutocomplete('billing postal-code', address.postalCode);
-  filled += fillSelectOrInputByAutocomplete('billing address-level1', address.state, [address.stateFull, address.state]);
+  filled += fillSelectOrInputByAutocomplete('billing address-level1', administrativeArea.value, administrativeArea.labels);
   filled += fillSelectByAutocomplete('billing country', address.countryCode, [address.countryLabel, address.countryCode]);
+  filled += fillSelectOrInput('#billingAdministrativeArea', administrativeArea.value, administrativeArea.labels);
+  filled += fillSelectOrInput('#billingAddress-administrativeAreaInput', administrativeArea.value, administrativeArea.labels);
   filled += checkVisibleTermsCheckboxes();
   hideAutocompleteDropdowns();
 
   return filled;
 }
 
+function resolveBillingAdministrativeArea(address: AddressProfile): { value: string; labels: string[] } {
+  const japanPrefecture = address.countryCode === 'JP' ? resolveJapanPrefecture(address) : '';
+  if (japanPrefecture) {
+    const value = JAPAN_PREFECTURE_VALUES_BY_LABEL[japanPrefecture] || japanPrefecture;
+    return {
+      value,
+      labels: [value, japanPrefecture, address.stateFull, address.state, address.city],
+    };
+  }
+
+  return {
+    value: address.state,
+    labels: [address.stateFull, address.state],
+  };
+}
+
+function resolveJapanPrefecture(address: AddressProfile): string {
+  const direct = [address.state, address.stateFull]
+    .map((value) => value.trim())
+    .find((value) => /[都道府県]$/.test(value));
+  if (direct) {
+    return direct;
+  }
+
+  const keys = [
+    address.state,
+    address.stateFull,
+    address.city,
+  ]
+    .map(normalizeJapanLookupKey)
+    .filter(Boolean);
+  for (const key of keys) {
+    const prefecture = JAPAN_PREFECTURE_LABELS[key] || JAPAN_CITY_PREFECTURE_LABELS[key];
+    if (prefecture) {
+      return prefecture;
+    }
+  }
+
+  return '東京都';
+}
+
+function normalizeJapanLookupKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
+}
+
 async function ensurePaypalReadyForAutofill(): Promise<{ required: boolean; ready: boolean; canRetry: boolean; message: string }> {
   const paypalButton = findPaypalAccordionButton();
   if (!paypalButton) {
     const amount = findCheckoutAmount();
+    if (amount.found && isChatGptCheckoutPage()) {
+      return { required: true, ready: true, canRetry: false, message: 'ChatGPT checkout 的 PayPal 选项在 Stripe 子框架内处理' };
+    }
     if (amount.found) {
       return { required: true, ready: false, canRetry: false, message: 'OpenAI 订阅页没有 PayPal 支付选项，当前邮箱不可用' };
     }
@@ -461,7 +657,12 @@ function isPaypalPaymentMethodReady(): boolean {
   const paypalRadio = document.querySelector<HTMLInputElement>('#payment-method-accordion-item-title-paypal');
   const selectedByRadio = Boolean(paypalRadio?.checked || paypalRadio?.getAttribute('aria-checked') === 'true');
   const selectedByClass = Boolean(document.querySelector('.paypal-accordion-item.PaymentMethodFormAccordionItem--selected'));
-  return selectedByRadio || selectedByClass;
+  const paypalTab = document.querySelector<HTMLElement>('button#paypal-tab, button[data-testid="paypal"], [role="tab"][value="paypal"]');
+  const selectedByTab = Boolean(
+    paypalTab?.getAttribute('aria-selected') === 'true' ||
+      document.querySelector('#paypal-panel:not([hidden]), [aria-labelledby="paypal-tab"]:not([hidden])'),
+  );
+  return selectedByRadio || selectedByClass || selectedByTab;
 }
 
 function clickPaypalPaymentMethod(primaryTarget: HTMLElement): void {
@@ -474,11 +675,15 @@ function clickPaypalPaymentMethod(primaryTarget: HTMLElement): void {
 function getPaypalClickTargets(primaryTarget: HTMLElement): HTMLElement[] {
   const radio = document.querySelector<HTMLInputElement>('#payment-method-accordion-item-title-paypal');
   const exact = document.querySelector<HTMLElement>('button[data-testid="paypal-accordion-item-button"]');
+  const tab = document.querySelector<HTMLElement>('button#paypal-tab, button[data-testid="paypal"], [role="tab"][value="paypal"]');
   return [
     exact,
+    tab,
     primaryTarget,
     radio,
     radio ? findPaypalRadioClickTarget(radio) : null,
+    document.querySelector<HTMLElement>('#paypal-tab'),
+    document.querySelector<HTMLElement>('[aria-controls="paypal-panel"]'),
     document.querySelector<HTMLElement>('.paypal-accordion-item-cover'),
     document.querySelector<HTMLElement>('.paypal-accordion-item .AccordionItemHeader--clickable'),
     document.querySelector<HTMLElement>('.paypal-accordion-item .AccordionItemCover'),
@@ -507,10 +712,17 @@ function hasVisibleBillingFields(): boolean {
     'input[autocomplete="billing address-line1"]',
     'input[autocomplete="billing postal-code"]',
   ];
-  return selectors.some((selector) => {
+  return hasStripeAddressElementFrame() || selectors.some((selector) => {
     const element = document.querySelector(selector);
     return Boolean(element && isVisible(element));
   });
+}
+
+function hasStripeAddressElementFrame(): boolean {
+  return Boolean(
+    isChatGptCheckoutPage() &&
+      document.querySelector<HTMLIFrameElement>(STRIPE_ADDRESS_IFRAME_SELECTOR),
+  );
 }
 
 function fillInput(selector: string, value: string, overwrite: boolean): number {
@@ -634,7 +846,7 @@ async function trySubmitZeroAmountCheckout(addressKey: string): Promise<PaymentS
     return { message: '未找到可识别的应付金额，等待金额区域重新渲染后重试', canRetry: true, submitted: false, requiresSubmit: true };
   }
   if (!amount.isZero) {
-    return { message: `当前应付金额不是 0（${amount.text}），未点击订阅`, canRetry: false, submitted: false, requiresSubmit: true };
+    return { message: `当前应付金额不是 0（${amount.text}），未点击提交`, canRetry: false, submitted: false, requiresSubmit: true };
   }
 
   const key = `${location.href}|${addressKey}|${amount.text}`;
@@ -644,7 +856,7 @@ async function trySubmitZeroAmountCheckout(addressKey: string): Promise<PaymentS
 
   const submitButton = await waitForZeroAmountSubmitButton(10_000);
   if (!submitButton) {
-    return { message: `检测到 ${amount.text}，但订阅按钮尚未完全可点击`, canRetry: true, submitted: false, requiresSubmit: true };
+    return { message: `检测到 ${amount.text}，但提交按钮尚未完全可点击`, canRetry: true, submitted: false, requiresSubmit: true };
   }
 
   zeroAmountSubmitKey = key;
@@ -653,14 +865,14 @@ async function trySubmitZeroAmountCheckout(addressKey: string): Promise<PaymentS
   if (paymentError) {
     zeroAmountSubmitKey = '';
     return {
-      message: `检测到 ${amount.text}，已点击订阅，但支付页返回错误：${paymentError}`,
+      message: `检测到 ${amount.text}，已点击提交，但支付页返回错误：${paymentError}`,
       canRetry: isRetryablePaymentError(paymentError),
       submitted: false,
       requiresSubmit: true,
       paymentError,
     };
   }
-  return { message: `检测到 ${amount.text}，已点击订阅`, canRetry: false, submitted: true, requiresSubmit: true };
+  return { message: `检测到 ${amount.text}，已点击提交`, canRetry: false, submitted: true, requiresSubmit: true };
 }
 
 function isPaymentSubmitComplete(result: PaymentSubmitResult): boolean {
@@ -674,7 +886,19 @@ function isPaymentSubmitComplete(result: PaymentSubmitResult): boolean {
 }
 
 function isLiveCheckoutSessionPage(): boolean {
-  return location.hostname === 'pay.openai.com' && location.pathname.startsWith('/c/pay/cs_live_');
+  return (
+    (location.hostname === 'pay.openai.com' && location.pathname.startsWith('/c/pay/cs_live_')) ||
+    (location.hostname === 'chatgpt.com' && location.pathname.startsWith('/checkout/openai_llc/cs_live_'))
+  );
+}
+
+function isSupportedOpenAiCheckoutHost(): boolean {
+  return location.hostname === 'pay.openai.com' ||
+    isChatGptCheckoutPage();
+}
+
+function isChatGptCheckoutPage(): boolean {
+  return location.hostname === 'chatgpt.com' && location.pathname.startsWith('/checkout/openai_llc/cs_');
 }
 
 function currentPaymentPageData(pageKind: string): Record<string, unknown> {
@@ -688,6 +912,8 @@ function currentPaymentPageData(pageKind: string): Record<string, unknown> {
     paypalReady: isPaypalPaymentMethodReady(),
     paypalButtonFound: Boolean(findPaypalAccordionButton()),
     submitButtonFound: Boolean(findZeroAmountSubmitButton()),
+    stripeAddressFrameFound: hasStripeAddressElementFrame(),
+    stripePaymentFrameFound: Boolean(document.querySelector<HTMLIFrameElement>('iframe[src*="elements-inner-payment"]')),
   };
 }
 
@@ -727,8 +953,12 @@ function findVisibleCurrencyAmounts(): CheckoutAmountCandidate[] {
     ...Array.from(document.querySelectorAll<HTMLElement>('.CurrencyAmount')),
     ...Array.from(document.querySelectorAll<HTMLElement>('#OrderDetails-TotalAmount span')),
     ...Array.from(document.querySelectorAll<HTMLElement>('[id*="OrderDetails-TotalAmount"] span')),
+    ...Array.from(document.querySelectorAll<HTMLElement>('[data-testid*="total" i], [data-testid*="amount" i], [class*="Total"], [class*="Amount"], [aria-label*="$"], [aria-label*="¥"], [aria-label*="￥"]')),
   ]).filter(isVisible);
-  const parsed = elements
+  const parsed = uniqueElements([
+    ...elements,
+    ...findInlineCurrencyAmountElements(),
+  ])
     .map((element) => {
       const text = (element.textContent || '').trim();
       const minorUnits = parseCurrencyMinorUnits(text);
@@ -761,6 +991,30 @@ function findUsableCheckoutAmountCandidate(amounts: CheckoutAmountCandidate[]): 
 
   const strongUnknown = sorted.find((item) => item.role === 'unknown' && item.priority >= 20);
   return strongUnknown || null;
+}
+
+function findInlineCurrencyAmountElements(): HTMLElement[] {
+  if (!document.body) {
+    return [];
+  }
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const elements: HTMLElement[] = [];
+  let node = walker.nextNode();
+  while (node) {
+    const text = node.textContent || '';
+    if (looksLikeCurrencyText(text)) {
+      const element = node.parentElement;
+      if (element && isVisible(element)) {
+        elements.push(element);
+      }
+    }
+    node = walker.nextNode();
+  }
+  return elements;
+}
+
+function looksLikeCurrencyText(text: string): boolean {
+  return /(?:[$¥￥]\s*-?\d|-?\d[\d,]*(?:\.\d+)?\s*(?:usd|jpy|cny|美元|日元|人民币|円|元))/i.test(text);
 }
 
 function compareCheckoutAmountCandidates(a: CheckoutAmountCandidate, b: CheckoutAmountCandidate): number {
@@ -875,11 +1129,17 @@ function hasDueAmountMarker(text: string): boolean {
     'total due',
     'due today',
     'amount due',
+    'due now',
+    'total today',
+    'free trial',
+    'trial today',
     'today',
     '合计',
     '总计',
     '应付',
     '今天',
+    '今日',
+    '试用',
   ].some((needle) => text.includes(needle));
 }
 
@@ -909,6 +1169,10 @@ function uniqueElements<T extends Element>(elements: T[]): T[] {
 }
 
 function parseCurrencyMinorUnits(text: string): number | null {
+  const normalized = normalizedText(text);
+  if (/(?:free|trial|试用|免费|今天|今日)/.test(normalized) && /(?:[$¥￥]\s*0(?:\.00)?|0(?:\.00)?\s*(?:usd|jpy|cny|美元|日元|人民币|円|元))/.test(text.replace(/\s+/g, ' '))) {
+    return 0;
+  }
   const match = text.replace(/\s+/g, '').match(/-?\d[\d,]*(?:\.\d+)?/);
   if (!match) {
     return null;
@@ -933,16 +1197,43 @@ async function waitForZeroAmountSubmitButton(timeoutMs: number): Promise<HTMLBut
 }
 
 function findZeroAmountSubmitButton(): HTMLButtonElement | null {
-  const exact = document.querySelector<HTMLButtonElement>(ZERO_AMOUNT_SUBMIT_BUTTON_SELECTOR);
-  if (isClickableButton(exact)) {
-    return exact;
+  const candidates = uniqueElements([
+    ...Array.from(document.querySelectorAll<HTMLButtonElement>(ZERO_AMOUNT_SUBMIT_BUTTON_SELECTOR)),
+    ...Array.from(document.querySelectorAll<HTMLButtonElement>('button[type="submit"], button.SubmitButton')),
+  ])
+    .filter(isClickableButton);
+  return candidates.sort(compareSubmitButtonCandidates)[0] || null;
+}
+
+function compareSubmitButtonCandidates(a: HTMLButtonElement, b: HTMLButtonElement): number {
+  return submitButtonCandidateScore(b) - submitButtonCandidateScore(a);
+}
+
+function submitButtonCandidateScore(button: HTMLButtonElement): number {
+  const marker = normalizedText([
+    button.id,
+    button.name,
+    button.className,
+    button.getAttribute('form'),
+    button.getAttribute('data-testid'),
+  ].join(' '));
+  let score = 0;
+  if (button.type === 'submit') {
+    score += 20;
   }
-  return Array.from(document.querySelectorAll<HTMLButtonElement>('button[type="submit"], button.SubmitButton'))
-    .filter(isClickableButton)
-    .find((button) => {
-      const text = normalizedText(button.textContent);
-      return text.includes('订阅') || text.includes('subscribe');
-    }) || null;
+  if (button.dataset.testid === 'hosted-payment-submit-button') {
+    score += 80;
+  }
+  if (button.hasAttribute('form')) {
+    score += 35;
+  }
+  if (button.classList.contains('btn-primary') || marker.includes('submitbutton')) {
+    score += 25;
+  }
+  if (button.closest('[aria-modal="true"], [role="dialog"], main, form')) {
+    score += 10;
+  }
+  return score;
 }
 
 async function waitForPaymentError(timeoutMs: number): Promise<string> {
@@ -958,6 +1249,10 @@ async function waitForPaymentError(timeoutMs: number): Promise<string> {
 }
 
 function findPaymentErrorMessage(): string {
+  const knownError = findKnownPaymentErrorText();
+  if (knownError) {
+    return knownError;
+  }
   const selectors = [
     '.ConfirmPaymentButton-Error',
     '.Notice--red',
@@ -972,6 +1267,31 @@ function findPaymentErrorMessage(): string {
       if (text) {
         return text;
       }
+    }
+  }
+  return '';
+}
+
+function findKnownPaymentErrorText(): string {
+  const candidates = Array.from(document.querySelectorAll<HTMLElement>('span, div, p, li, [role="alert"]'))
+    .filter(isVisible);
+  for (const element of candidates) {
+    const text = compactElementText(element);
+    const normalized = normalizedText(text);
+    if (!text || !normalized) {
+      continue;
+    }
+    if (normalized.includes('出错了，请重试')) {
+      return '出错了，请重试。';
+    }
+    if (normalized.includes('付款未获批准')) {
+      return '付款未获批准';
+    }
+    if (normalized.includes('something went wrong')) {
+      return 'Something went wrong. Please try again.';
+    }
+    if (normalized.includes('please try again')) {
+      return 'Please try again.';
     }
   }
   return '';

@@ -1,0 +1,61 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - img [ref=e6]
+      - generic [ref=e9]:
+        - heading "Outlook 快速取件" [level=1] [ref=e10]
+        - paragraph [ref=e11]: IMAP OAuth2 + Graph API 双协议
+    - generic [ref=e15]: 就绪
+  - generic [ref=e16]:
+    - complementary [ref=e17]:
+      - generic [ref=e18]:
+        - heading "邮箱列表" [level=2] [ref=e19]:
+          - img [ref=e20]
+          - text: 邮箱列表
+        - generic [ref=e23]: "0"
+      - generic [ref=e24]:
+        - img
+        - textbox "搜索邮箱" [ref=e25]
+      - generic [ref=e26]:
+        - button "批量导入邮箱" [ref=e27] [cursor=pointer]:
+          - img [ref=e28]
+          - text: 批量导入邮箱
+        - button "导出邮箱" [ref=e30] [cursor=pointer]:
+          - img [ref=e31]
+          - text: 导出邮箱
+      - generic [ref=e35]:
+        - img [ref=e36]
+        - paragraph [ref=e39]: 暂无邮箱
+        - paragraph [ref=e40]: 点击上方按钮导入
+      - button "清空全部" [ref=e42] [cursor=pointer]:
+        - img [ref=e43]
+        - text: 清空全部
+    - main [ref=e45]:
+      - generic [ref=e46]:
+        - generic [ref=e47]:
+          - generic [ref=e48]:
+            - img
+            - textbox "搜索关键词（主题/正文）" [ref=e49]
+          - generic [ref=e50]:
+            - img
+            - textbox "发件人过滤（可选）" [ref=e51]
+          - combobox [ref=e53] [cursor=pointer]:
+            - option "5 封"
+            - option "10 封" [selected]
+            - option "20 封"
+            - option "30 封"
+        - generic [ref=e54]:
+          - generic [ref=e55]:
+            - generic [ref=e57] [cursor=pointer]: IMAP
+            - generic [ref=e59] [cursor=pointer]: Graph
+          - generic [ref=e60]:
+            - button "选中取件" [ref=e61] [cursor=pointer]:
+              - img [ref=e62]
+              - text: 选中取件
+            - button "全部取件" [ref=e65] [cursor=pointer]:
+              - img [ref=e66]
+              - text: 全部取件
+      - generic [ref=e71]:
+        - img [ref=e72]
+        - paragraph [ref=e75]: 在左侧导入邮箱，然后点击取件
+        - paragraph [ref=e76]: 支持 IMAP OAuth2 + Graph API 双协议并行取件

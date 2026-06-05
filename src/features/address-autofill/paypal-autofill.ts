@@ -17,9 +17,88 @@ const PAYPAL_BILLING_CONSENT_ATTR = 'data-opx-paypal-billing-consent-clicked';
 const PAYPAL_CAPTCHA_COMPONENT_ID = 'captchaComponent';
 const MAX_AUTOFILL_ATTEMPTS_PER_PAGE = 3;
 const MAX_BILLING_CONSENT_ATTEMPTS = 8;
+const PAYPAL_CREATE_ACCOUNT_ENTRY_CLICK_COOLDOWN_MS = 1_200;
 const SCA_SMS_TIME_TOLERANCE_MS = 10_000;
 const PAYPAL_FIRST_NAMES = ['Alex', 'Blake', 'Casey', 'Drew', 'Evan', 'Jamie', 'Jordan', 'Morgan', 'Riley', 'Taylor'];
 const PAYPAL_LAST_NAMES = ['Adams', 'Baker', 'Carter', 'Davis', 'Evans', 'Miller', 'Parker', 'Reed', 'Turner', 'Walker'];
+const PAYPAL_PASSWORD_MIN_LENGTH = 8;
+const PAYPAL_PASSWORD_MAX_LENGTH = 20;
+const PAYPAL_PASSWORD_SAFE_CHARS = 'Aa1Bb2Cc3Dd4Ee5Ff6Gg7Hh8Jj9Kk';
+const PAYPAL_JP_NAME = {
+  first: '太郎',
+  last: '山田',
+  kanaFirst: 'タロウ',
+  kanaLast: 'ヤマダ',
+};
+const PAYPAL_JP_DEFAULT_BIRTHDAY = '1988/04/12';
+const JAPAN_PREFECTURE_LABELS: Record<string, string> = {
+  hokkaido: '北海道',
+  aomori: '青森県',
+  iwate: '岩手県',
+  miyagi: '宮城県',
+  akita: '秋田県',
+  yamagata: '山形県',
+  fukushima: '福島県',
+  ibaraki: '茨城県',
+  tochigi: '栃木県',
+  gunma: '群馬県',
+  saitama: '埼玉県',
+  chiba: '千葉県',
+  tokyo: '東京都',
+  kanagawa: '神奈川県',
+  niigata: '新潟県',
+  toyama: '富山県',
+  ishikawa: '石川県',
+  fukui: '福井県',
+  yamanashi: '山梨県',
+  nagano: '長野県',
+  gifu: '岐阜県',
+  shizuoka: '静岡県',
+  aichi: '愛知県',
+  mie: '三重県',
+  shiga: '滋賀県',
+  kyoto: '京都府',
+  osaka: '大阪府',
+  hyogo: '兵庫県',
+  nara: '奈良県',
+  wakayama: '和歌山県',
+  tottori: '鳥取県',
+  shimane: '島根県',
+  okayama: '岡山県',
+  hiroshima: '広島県',
+  yamaguchi: '山口県',
+  tokushima: '徳島県',
+  kagawa: '香川県',
+  ehime: '愛媛県',
+  kochi: '高知県',
+  fukuoka: '福岡県',
+  saga: '佐賀県',
+  nagasaki: '長崎県',
+  kumamoto: '熊本県',
+  oita: '大分県',
+  miyazaki: '宮崎県',
+  kagoshima: '鹿児島県',
+  okinawa: '沖縄県',
+};
+const JAPAN_CITY_PREFECTURE_LABELS: Record<string, string> = {
+  sapporo: '北海道',
+  sendai: '宮城県',
+  saitama: '埼玉県',
+  chiba: '千葉県',
+  tokyo: '東京都',
+  yokohama: '神奈川県',
+  kawasaki: '神奈川県',
+  niigata: '新潟県',
+  shizuoka: '静岡県',
+  nagoya: '愛知県',
+  kyoto: '京都府',
+  osaka: '大阪府',
+  kobe: '兵庫県',
+  hiroshima: '広島県',
+  fukuoka: '福岡県',
+  kumamoto: '熊本県',
+  naha: '沖縄県',
+};
 const PAYPAL_COUNTRY_LABELS: Record<string, string> = {
   AR: 'Argentina',
   AU: 'Australia',
@@ -56,6 +135,14 @@ interface PaypalCreateAccountSubmitResult {
   message: string;
   paymentError?: string;
   phoneNumberRejected?: boolean;
+}
+
+interface PaypalSignupFillResult {
+  filled: number;
+  countryChanged: boolean;
+  phoneFilled: boolean;
+  phoneRequired: boolean;
+  phoneMessage: string;
 }
 
 let initialized = false;
@@ -141,6 +228,8 @@ export async function fillPaypalAddressNow(
   }
   const submitResult: PaypalCreateAccountSubmitResult = result.countryChanged || result.filled <= 0
     ? { submitted: false, canRetry: result.countryChanged, message: '' }
+    : result.phoneRequired && !result.phoneFilled
+      ? { submitted: false, canRetry: false, message: result.phoneMessage || '没有可用接码池手机号，已跳过提交' }
     : await clickPaypalCreateAccountSubmit();
   return {
     ok: result.countryChanged || (result.filled > 0 && submitResult.submitted),
@@ -204,9 +293,15 @@ export function checkPaypalCheckoutReady(kind: 'paypal-account-entry' | 'paypal-
     };
   }
   const hasEmailForm = Boolean(findPaypalCheckoutEmailInput() && findPaypalCheckoutContinueButton());
-  const hasCreateAccountButton = Boolean(findPaypalCreateAccountButton());
+  const createAccountButton = findPaypalCreateAccountButton();
+  const hasCreateAccountButton = Boolean(createAccountButton);
+  const createAccountButtonReady = Boolean(
+    createAccountButton &&
+      isClickableButton(createAccountButton) &&
+      isElementTopClickable(createAccountButton, true),
+  );
   const ok = pageKind === 'signup' ||
-    (pageKind === 'account-entry' && hasCreateAccountButton) ||
+    (pageKind === 'account-entry' && createAccountButtonReady) ||
     (pageKind === 'checkout-email' && hasEmailForm);
   return {
     ok,
@@ -461,26 +556,36 @@ async function getPageAddress(settings: AddressAutofillSettings): Promise<Addres
   return pageAddress;
 }
 
-async function fillPaypalSignupFields(address: AddressProfile, allowRetry: boolean): Promise<{ filled: number; countryChanged: boolean }> {
+async function fillPaypalSignupFields(address: AddressProfile, allowRetry: boolean): Promise<PaypalSignupFillResult> {
   let filled = 0;
   const countryChanged = selectCountry(address);
   if (countryChanged) {
     if (allowRetry) {
       scheduleAutofill(1500);
     }
-    return { filled: 1, countryChanged: true };
+    return {
+      filled: 1,
+      countryChanged: true,
+      phoneFilled: false,
+      phoneRequired: false,
+      phoneMessage: '',
+    };
   }
 
   const email = await resolveEmail(address);
   const password = createPaypalPassword(email);
+  const phoneFieldVisible = Boolean(hasVisibleField(PAYPAL_FIELDS.phone));
   const smsPhone = await resolveSmsPhone();
-  const name = splitName(address.fullName);
+  const genericName = splitName(address.fullName);
+  const name = shouldFillPaypalJapanFields(address) ? { first: PAYPAL_JP_NAME.first, last: PAYPAL_JP_NAME.last } : genericName;
   const expiry = parseExpiry(address.creditCard.expires);
+  const state = resolvePaypalState(address);
 
   filled += fillText(PAYPAL_FIELDS.email, email, true);
   filled += fillPasswordField(password);
   renderPasswordEmailNote(email, password);
-  filled += fillText(PAYPAL_FIELDS.phone, smsPhone, true);
+  const phoneFilledCount = smsPhone ? fillText(PAYPAL_FIELDS.phone, smsPhone, true) : 0;
+  filled += phoneFilledCount;
   filled += fillText(PAYPAL_FIELDS.cardNumber, address.creditCard.number, true);
   filled += fillText(PAYPAL_FIELDS.expiry, expiry.short, true);
   filled += fillText(PAYPAL_FIELDS.csc, address.creditCard.cvv, true);
@@ -490,13 +595,149 @@ async function fillPaypalSignupFields(address: AddressProfile, allowRetry: boole
   filled += fillText(PAYPAL_FIELDS.address1, address.line1, true);
   filled += fillText(PAYPAL_FIELDS.address2, address.line2, true);
   filled += fillText(PAYPAL_FIELDS.city, address.city, true);
-  filled += fillSelectOrInput(PAYPAL_FIELDS.state, address.state, [address.stateFull, address.state]);
+  filled += fillSelectOrInput(PAYPAL_FIELDS.state, state.value, state.labels);
   filled += fillText(PAYPAL_FIELDS.postalCode, address.postalCode, true);
   filled += fillBillingAddressGroup(address, name);
+  filled += fillPaypalJapanFields(address);
   filled += fillSelectOrInput(PAYPAL_FIELDS.expiryMonth, expiry.month, [expiry.month]);
   filled += fillSelectOrInput(PAYPAL_FIELDS.expiryYear, expiry.year4, [expiry.year4, expiry.year2]);
 
-  return { filled, countryChanged: false };
+  const phoneFilled = phoneFilledCount > 0;
+  return {
+    filled,
+    countryChanged: false,
+    phoneFilled,
+    phoneRequired: phoneFieldVisible,
+    phoneMessage: phoneFilled
+      ? `已使用接码池手机号 ${maskPhoneForLog(smsPhone)}`
+      : phoneFieldVisible
+        ? '没有可用接码池手机号，已跳过手机号并停止提交'
+        : '',
+  };
+}
+
+function shouldFillPaypalJapanFields(address: AddressProfile): boolean {
+  return address.countryCode === 'JP' ||
+    Boolean(
+      document.querySelector(
+        'input#dateOfBirth, input#countrySpecificFirstName, input#countrySpecificLastName, [data-testid="kana-names"]',
+      ),
+    );
+}
+
+function fillPaypalJapanFields(address: AddressProfile): number {
+  if (!shouldFillPaypalJapanFields(address)) {
+    return 0;
+  }
+
+  let filled = 0;
+  const birthday = formatPaypalJapanBirthday(address.identity.birthday);
+  const prefecture = resolveJapanPrefecture(address);
+  filled += fillText(PAYPAL_FIELDS.dateOfBirth, birthday, true);
+  filled += fillText(PAYPAL_FIELDS.kanaFirstName, PAYPAL_JP_NAME.kanaFirst, true);
+  filled += fillText(PAYPAL_FIELDS.kanaLastName, PAYPAL_JP_NAME.kanaLast, true);
+  filled += fillText(PAYPAL_FIELDS.firstName, PAYPAL_JP_NAME.first, true);
+  filled += fillText(PAYPAL_FIELDS.lastName, PAYPAL_JP_NAME.last, true);
+  if (prefecture) {
+    filled += fillSelectOrInput(PAYPAL_FIELDS.state, prefecture, [prefecture, address.stateFull, address.state]);
+  }
+  return filled;
+}
+
+function resolvePaypalState(address: AddressProfile): { value: string; labels: string[] } {
+  const japanPrefecture = shouldFillPaypalJapanFields(address) ? resolveJapanPrefecture(address) : '';
+  if (japanPrefecture) {
+    return {
+      value: japanPrefecture,
+      labels: [japanPrefecture, address.stateFull, address.state],
+    };
+  }
+  return {
+    value: address.state,
+    labels: [address.stateFull, address.state],
+  };
+}
+
+function resolveJapanPrefecture(address: AddressProfile): string {
+  const direct = [address.state, address.stateFull]
+    .map((value) => value.trim())
+    .find((value) => /[都道府県]$/.test(value));
+  if (direct) {
+    return direct;
+  }
+
+  const keys = [
+    address.state,
+    address.stateFull,
+    address.city,
+  ]
+    .map(normalizeJapanLookupKey)
+    .filter(Boolean);
+  for (const key of keys) {
+    const prefecture = JAPAN_PREFECTURE_LABELS[key] || JAPAN_CITY_PREFECTURE_LABELS[key];
+    if (prefecture) {
+      return prefecture;
+    }
+  }
+
+  return '東京都';
+}
+
+function normalizeJapanLookupKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
+}
+
+function formatPaypalJapanBirthday(value: string): string {
+  const parts = value.match(/\d+/g) || [];
+  let year = '';
+  let month = '';
+  let day = '';
+
+  if (parts.length >= 3) {
+    const first = parts[0] || '';
+    const second = parts[1] || '';
+    const third = parts[2] || '';
+    if (first.length === 4) {
+      year = first;
+      month = second;
+      day = third;
+    } else if (third.length === 4) {
+      year = third;
+      month = first;
+      day = second;
+    }
+  } else {
+    const only = parts[0] || '';
+    if (parts.length === 1 && only.length === 8) {
+      year = only.slice(0, 4);
+      month = only.slice(4, 6);
+      day = only.slice(6, 8);
+    }
+  }
+
+  if (!isReasonableBirthday(year, month, day)) {
+    return PAYPAL_JP_DEFAULT_BIRTHDAY;
+  }
+
+  return `${year.padStart(4, '0')}/${month.padStart(2, '0')}/${day.padStart(2, '0')}`;
+}
+
+function isReasonableBirthday(yearValue: string, monthValue: string, dayValue: string): boolean {
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  const day = Number(dayValue);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    return false;
+  }
+  if (year < 1940 || year > 2004 || month < 1 || month > 12 || day < 1 || day > 31) {
+    return false;
+  }
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day;
 }
 
 async function fillPaypalScaCodeIfReady(): Promise<{ present: boolean; filled: boolean; message: string }> {
@@ -748,15 +989,19 @@ async function fillPaypalCheckoutEmailAndContinue(): Promise<{ ok: boolean; mess
   const mode = detectPaypalCheckoutEmailMode();
   if (mode === 'login-with-create') {
     const button = findPaypalCreateAccountButton();
-    const canClickAgain = !paypalCreateAccountClicked || Date.now() - paypalCreateAccountClickedAt > 3_000;
+    const canClickAgain = !paypalCreateAccountClicked ||
+      Date.now() - paypalCreateAccountClickedAt > PAYPAL_CREATE_ACCOUNT_ENTRY_CLICK_COOLDOWN_MS;
     if (button && canClickAgain) {
+      const clickResult = await clickPaypalCreateAccountEntryButton(button);
+      if (!clickResult.clicked) {
+        return { ok: false, message: clickResult.message };
+      }
       paypalCreateAccountClicked = true;
       paypalCreateAccountClickedAt = Date.now();
-      clickButton(button);
       scheduleAutofill(1200);
-      return { ok: false, message: '当前是 PayPal 登录页，已点击创建账户入口，等待创建表单' };
+      return { ok: false, message: clickResult.message };
     }
-    return { ok: false, message: '当前是 PayPal 登录页，等待创建账户表单' };
+    return { ok: false, message: `当前是 PayPal 登录页，等待创建账户表单：${paypalCreateAccountButtonDebug(button)}` };
   }
   if (mode === 'login') {
     return { ok: false, message: '当前是 PayPal 登录页，跳过邮箱填写' };
@@ -817,9 +1062,12 @@ function clickPaypalBillingConsentAndContinue(): { ok: boolean; message: string 
 
 async function resolveSmsPhone(): Promise<string> {
   try {
-    const state = await loadSmsRelayState();
-    const parsed = parseSmsRelayTargets(state.rawInput);
-    return sanitizePhone(parsed.targets[0]?.phone || '');
+    const state = await loadAutomationState();
+    const selected = state.run.selectedSmsId
+      ? state.smsTargets.find((target) => target.id === state.run.selectedSmsId && target.source === 'api' && !target.disabled) || null
+      : null;
+    const target = selected || state.smsTargets.find((item) => item.source === 'api' && !item.disabled) || null;
+    return sanitizePhone(target?.phone || '');
   } catch (error) {
     console.debug(`${LOG_PREFIX} sms phone unavailable`, error);
     return '';
@@ -834,26 +1082,97 @@ function sanitizePhone(value: string): string {
   return digits;
 }
 
+function maskPhoneForLog(value: string): string {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length <= 6) {
+    return digits;
+  }
+  return `${digits.slice(0, 3)}***${digits.slice(-3)}`;
+}
+
 function createPaypalPassword(email: string): string {
   const localPart = (email.split('@')[0] || 'paypaluser').replace(/[^a-zA-Z0-9]/g, '');
   const base = localPart.slice(0, 12) || 'paypaluser';
   let password = `${base}1A`;
-  if (password.length < 8) {
-    password = `${password}${'x'.repeat(8 - password.length)}`;
+  if (password.length > PAYPAL_PASSWORD_MAX_LENGTH) {
+    password = password.slice(0, PAYPAL_PASSWORD_MAX_LENGTH);
   }
-  if (password.length > 20) {
-    password = password.slice(0, 20);
-  }
+  password = padPaypalPassword(password);
+  password = breakPaypalRepeatedPasswordChars(password);
   if (!/[0-9!@#$%^]/.test(password)) {
-    password = `${password.slice(0, 19)}1`;
+    password = replacePaypalPasswordChar(password, password.length - 2, '1');
   }
   if (!/[a-zA-Z]/.test(password)) {
-    password = `Aa${password}`.slice(0, 20);
+    password = replacePaypalPasswordChar(password, password.length - 1, 'A');
   }
-  if (password.length < 8) {
-    password = `${password}Aa1`.padEnd(8, 'x').slice(0, 8);
+  return breakPaypalRepeatedPasswordChars(password).slice(0, PAYPAL_PASSWORD_MAX_LENGTH);
+}
+
+function padPaypalPassword(value: string): string {
+  let password = value;
+  let safeCharIndex = 0;
+  while (password.length < PAYPAL_PASSWORD_MIN_LENGTH) {
+    password += pickPaypalPasswordPadChar(password, safeCharIndex);
+    safeCharIndex += 1;
   }
-  return password.slice(0, 20);
+  return password;
+}
+
+function pickPaypalPasswordPadChar(password: string, offset: number): string {
+  for (let index = 0; index < PAYPAL_PASSWORD_SAFE_CHARS.length; index += 1) {
+    const candidate = PAYPAL_PASSWORD_SAFE_CHARS[(index + offset) % PAYPAL_PASSWORD_SAFE_CHARS.length] || 'A';
+    if (!wouldCreatePaypalRepeatedRun(password, candidate)) {
+      return candidate;
+    }
+  }
+  return password.endsWith('A') ? '1' : 'A';
+}
+
+function wouldCreatePaypalRepeatedRun(prefix: string, candidate: string): boolean {
+  return prefix.length >= 3 &&
+    prefix[prefix.length - 1] === candidate &&
+    prefix[prefix.length - 2] === candidate &&
+    prefix[prefix.length - 3] === candidate;
+}
+
+function breakPaypalRepeatedPasswordChars(value: string): string {
+  const chars = Array.from(value);
+  for (let index = 3; index < chars.length; index += 1) {
+    if (
+      chars[index] === chars[index - 1] &&
+      chars[index] === chars[index - 2] &&
+      chars[index] === chars[index - 3]
+    ) {
+      chars[index] = pickPaypalPasswordReplacement(chars, index);
+    }
+  }
+  return chars.join('');
+}
+
+function pickPaypalPasswordReplacement(chars: string[], index: number): string {
+  const previous = chars[index - 1] || '';
+  const next = chars[index + 1] || '';
+  for (let offset = 0; offset < PAYPAL_PASSWORD_SAFE_CHARS.length; offset += 1) {
+    const candidate = PAYPAL_PASSWORD_SAFE_CHARS[(index + offset) % PAYPAL_PASSWORD_SAFE_CHARS.length] || 'A';
+    if (candidate !== previous && candidate !== next) {
+      return candidate;
+    }
+  }
+  return previous === 'A' || next === 'A' ? '1' : 'A';
+}
+
+function replacePaypalPasswordChar(value: string, index: number, preferred: string): string {
+  const chars = Array.from(value.padEnd(PAYPAL_PASSWORD_MIN_LENGTH, 'A')).slice(0, PAYPAL_PASSWORD_MAX_LENGTH);
+  const safeIndex = Math.max(0, Math.min(index, chars.length - 1));
+  chars[safeIndex] = preferred;
+  let password = breakPaypalRepeatedPasswordChars(chars.join(''));
+  if (password.length < PAYPAL_PASSWORD_MIN_LENGTH) {
+    password = padPaypalPassword(password);
+  }
+  if (!/[a-zA-Z]/.test(password)) {
+    password = `${password.slice(0, PAYPAL_PASSWORD_MAX_LENGTH - 1)}A`;
+  }
+  return password;
 }
 
 function fillText(selectors: string[], value: string, overwrite: boolean): number {
@@ -867,6 +1186,15 @@ function fillText(selectors: string[], value: string, overwrite: boolean): numbe
   }
 
   return fillTextControl(input, value, overwrite);
+}
+
+function hasVisibleField(selectors: string[]): boolean {
+  const input = findTextControl(selectors);
+  if (input && isVisible(input)) {
+    return true;
+  }
+  const select = findSelect(selectors);
+  return Boolean(select && isVisible(select));
 }
 
 function fillTextControl(input: HTMLInputElement | HTMLTextAreaElement, value: string, overwrite: boolean): number {
@@ -946,6 +1274,10 @@ function findPaypalCheckoutContinueButton(): HTMLButtonElement | null {
 }
 
 function isPaypalCheckoutContinueButton(button: HTMLButtonElement): boolean {
+  if (isPaypalOnboardingEmailContinueButton(button)) {
+    return true;
+  }
+
   const marker = normalizedText([
     button.textContent,
     button.id,
@@ -972,6 +1304,18 @@ function isPaypalCheckoutContinueButton(button: HTMLButtonElement): boolean {
     marker === 'continue' ||
     marker === 'next' ||
     marker === '继续';
+}
+
+function isPaypalOnboardingEmailContinueButton(button: HTMLButtonElement): boolean {
+  if (!isVisible(button)) {
+    return false;
+  }
+  const form = button.closest('form');
+  if (!(form instanceof HTMLFormElement) || !isPaypalOnboardingEmailForm(form)) {
+    return false;
+  }
+  const type = (button.type || button.getAttribute('type') || '').toLowerCase();
+  return type === 'submit' || button.classList.contains('actionContinue');
 }
 
 function findPaypalBillingConsentButton(): HTMLButtonElement | null {
@@ -1353,23 +1697,66 @@ function findPaypalCreateAccountButton(): HTMLButtonElement | null {
   const selectors = [
     'button#startOnboardingFlow',
     'button[name="startOnboardingFlow"]',
+    'button.onboardingFlowContentKey',
     'button[data-atomic-wait-intent="Pay_With_Card"]',
     'button[data-atomic-wait-viewname="email"][data-atomic-wait-task="login_create_account"]',
   ];
   for (const selector of selectors) {
     const button = querySelectorCandidate(selector);
-    if (button instanceof HTMLButtonElement && isVisible(button) && isPaypalCreateAccountButtonText(button)) {
+    if (
+      button instanceof HTMLButtonElement &&
+      isDisplayedElement(button) &&
+      (isPaypalCreateAccountButtonStrongSignal(button) || isPaypalCreateAccountButtonText(button))
+    ) {
       return button;
     }
   }
 
   return Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
     .find((button) => {
-      if (!isVisible(button)) {
+      if (!isDisplayedElement(button)) {
         return false;
       }
-      return isPaypalCreateAccountButtonText(button);
+      return isPaypalCreateAccountButtonStrongSignal(button) || isPaypalCreateAccountButtonText(button);
     }) || null;
+}
+
+async function clickPaypalCreateAccountEntryButton(button: HTMLButtonElement): Promise<{ clicked: boolean; message: string }> {
+  let target = button;
+  if (!isClickableButton(target) || !isElementTopClickable(target, true)) {
+    target = await waitForPaypalCreateAccountButtonClickable(4_000) || target;
+  }
+  if (!isClickableButton(target) || !isElementTopClickable(target, true)) {
+    return {
+      clicked: false,
+      message: `PayPal 创建账户入口按钮暂不可点击：${paypalCreateAccountButtonDebug(target)}`,
+    };
+  }
+  clickButton(target);
+  await wait(220);
+  return {
+    clicked: true,
+    message: `当前是 PayPal 登录页，已点击创建账户入口，等待创建表单：${paypalCreateAccountButtonDebug(target)}`,
+  };
+}
+
+async function waitForPaypalCreateAccountButtonClickable(timeoutMs: number): Promise<HTMLButtonElement | null> {
+  const started = Date.now();
+  let button = findPaypalCreateAccountButton();
+  while (Date.now() - started < timeoutMs) {
+    if (button && isClickableButton(button) && isElementTopClickable(button, true)) {
+      return button;
+    }
+    await wait(100);
+    button = findPaypalCreateAccountButton();
+  }
+  return button;
+}
+
+function isPaypalCreateAccountButtonStrongSignal(button: HTMLButtonElement): boolean {
+  return button.id === 'startOnboardingFlow' ||
+    button.name === 'startOnboardingFlow' ||
+    button.classList.contains('onboardingFlowContentKey');
 }
 
 function isPaypalCreateAccountButtonText(button: HTMLButtonElement): boolean {
@@ -1394,6 +1781,8 @@ function isPaypalCreateAccountButtonText(button: HTMLButtonElement): boolean {
     marker === '创建账户' ||
     marker === 'create an account' ||
     marker === 'create account' ||
+    marker.includes('アカウントを開設') ||
+    marker.includes('アカウント開設') ||
     marker.includes('create paypal account') ||
     marker.includes('create a paypal account');
 }
@@ -1427,6 +1816,7 @@ function detectPaypalCheckoutEmailMode(): 'create' | 'login-with-create' | 'logi
   const hasCreateCheckoutText = hasPaypalCreateCheckoutText(text);
   if (
     hasOnboardingEmail ||
+    isPaypalOnboardingEmailPage() ||
     hasCreateCheckoutText ||
     hasCheckoutEmailForm ||
     (
@@ -1443,6 +1833,8 @@ function detectPaypalCheckoutEmailMode(): 'create' | 'login-with-create' | 'logi
   if (
     createButton &&
     (
+      isPaypalAgreementApprovePage() ||
+      isPaypalPayCreateAccountEntryPage() ||
       hasLoginHeading ||
       hasLoginButton ||
       text.includes('首先，请输入您的邮箱地址') ||
@@ -1859,6 +2251,7 @@ function emitChange(element: HTMLElement): void {
 
 function clickButton(button: HTMLButtonElement): void {
   button.scrollIntoView({ block: 'center', inline: 'center' });
+  button.focus({ preventScroll: true });
   const rect = button.getBoundingClientRect();
   const clientX = rect.left + Math.max(1, rect.width / 2);
   const clientY = rect.top + Math.max(1, rect.height / 2);
@@ -1900,13 +2293,47 @@ function installObserver(): void {
 }
 
 function removePaypalCaptchaComponent(): boolean {
+  if (hasPaypalSliderChallenge()) {
+    return false;
+  }
   const captcha = document.getElementById(PAYPAL_CAPTCHA_COMPONENT_ID);
   if (!captcha) {
+    return false;
+  }
+  if (captcha.querySelector('.sliderContainer, .slider')) {
     return false;
   }
   captcha.remove();
   console.info(`${LOG_PREFIX} removed #${PAYPAL_CAPTCHA_COMPONENT_ID}`);
   return true;
+}
+
+function hasPaypalSliderChallenge(): boolean {
+  // PayPal 滑块 DOM 检测源头：第 11 步会读取 sliderChallengeFound。
+  // 如果后续需要在检测到滑块时执行页面调试 JS 或人工辅助提示，入口在 runner-payment-ready.ts 的 paypal-slider-challenge 分支。
+  if (hasPaypalDataDomeCaptchaChallenge()) {
+    return true;
+  }
+  const sliderContainer = document.querySelector<HTMLElement>('.sliderContainer');
+  const slider = document.querySelector<HTMLElement>('.slider');
+  return Boolean(
+    sliderContainer &&
+      slider &&
+      isVisible(sliderContainer) &&
+      isVisible(slider),
+  );
+}
+
+function hasPaypalDataDomeCaptchaChallenge(): boolean {
+  const iframe = document.querySelector<HTMLIFrameElement>(
+    'iframe[title*="DataDome" i], iframe[src*="geo.ddc.paypal.com/captcha"], iframe[src*="ct.ddc.paypal.com"]',
+  );
+  const form = document.querySelector<HTMLFormElement>('form#ads-dd-captcha, form input[name="adsddcaptcha"]');
+  return Boolean(
+    (iframe && isVisible(iframe)) ||
+      form ||
+      document.querySelector('script[src*="ct.ddc.paypal.com/c.js"], script[data-cfasync="false"]'),
+  );
 }
 
 function primeScaPromptFromDom(): void {
@@ -2517,7 +2944,43 @@ function isPaypalBillingConsentPage(): boolean {
 }
 
 function isPaypalCheckoutEmailPage(): boolean {
-  return isPaypalCheckoutSigninPage() || isPaypalPayCreateAccountEntryPage() || hasPaypalCheckoutEmailForm();
+  return isPaypalCheckoutSigninPage() ||
+    isPaypalPayCreateAccountEntryPage() ||
+    isPaypalOnboardingEmailPage() ||
+    hasPaypalCheckoutEmailForm();
+}
+
+function isPaypalOnboardingEmailPage(): boolean {
+  const form = findPaypalOnboardingEmailForm();
+  return Boolean(form && isVisible(form));
+}
+
+function findPaypalOnboardingEmailForm(): HTMLFormElement | null {
+  const selectors = [
+    'form[name="beginOnboardingFlow"]',
+    'form[action*="/signin/onboarding/continue"]',
+  ];
+  for (const selector of selectors) {
+    const form = querySelectorCandidate(selector);
+    if (form instanceof HTMLFormElement && isPaypalOnboardingEmailForm(form)) {
+      return form;
+    }
+  }
+
+  return Array.from(document.querySelectorAll<HTMLFormElement>('form'))
+    .find((form) => isPaypalOnboardingEmailForm(form)) || null;
+}
+
+function isPaypalOnboardingEmailForm(form: HTMLFormElement): boolean {
+  const hasEmailInput = Boolean(form.querySelector('input#onboardingFlowEmail, input[name="login_email"][type="email"]'));
+  if (!hasEmailInput) {
+    return false;
+  }
+  const formName = normalizedText(form.name);
+  const action = normalizedText(form.getAttribute('action') || '');
+  return formName === 'beginonboardingflow' ||
+    action.includes('/signin/onboarding/continue') ||
+    Boolean(form.querySelector('input[name="isForcedSignup"][value="true"]'));
 }
 
 function isPaypalPayCreateAccountEntryPage(): boolean {
@@ -2597,6 +3060,12 @@ function detectPaypalCheckoutPageKind(): string {
     return 'sca-code';
   }
   if (isPaypalAgreementApprovePage()) {
+    if (findPaypalCreateAccountButton()) {
+      return 'account-entry';
+    }
+    if (isPaypalOnboardingEmailPage() || hasPaypalCheckoutEmailForm()) {
+      return 'checkout-email';
+    }
     return 'agreement-approve';
   }
   const mode = detectPaypalCheckoutEmailMode();
@@ -2616,15 +3085,23 @@ function detectPaypalCheckoutPageKind(): string {
 }
 
 function paypalCheckoutPageData(pageKind: string): Record<string, unknown> {
+  const createAccountButton = findPaypalCreateAccountButton();
   return {
     pageKind,
     url: location.href,
     readyState: document.readyState,
     emailMode: location.hostname.endsWith('paypal.com') ? detectPaypalCheckoutEmailMode() : 'unknown',
-    createAccountButtonFound: Boolean(findPaypalCreateAccountButton()),
+    createAccountButtonFound: Boolean(createAccountButton),
+    createAccountButtonClickable: Boolean(createAccountButton && isClickableButton(createAccountButton) && isElementTopClickable(createAccountButton)),
+    createAccountButtonDisabled: createAccountButton ? createAccountButton.disabled : false,
+    createAccountButtonAriaDisabled: createAccountButton ? createAccountButton.getAttribute('aria-disabled') === 'true' : false,
+    createAccountButtonText: createAccountButton ? compactText(createAccountButton.textContent || '') : '',
+    createAccountButtonBlockedBy: createAccountButton ? describeTopClickableBlocker(createAccountButton) : '',
     emailInputFound: Boolean(findPaypalCheckoutEmailInput()),
     continueButtonFound: Boolean(findPaypalCheckoutContinueButton()),
     billingConsentButtonFound: Boolean(findPaypalBillingConsentButton()),
+    sliderChallengeFound: hasPaypalSliderChallenge(),
+    captchaComponentFound: Boolean(document.getElementById(PAYPAL_CAPTCHA_COMPONENT_ID)),
   };
 }
 
@@ -2663,6 +3140,11 @@ function isVisible(element: Element): boolean {
   if ('disabled' in htmlElement && Boolean((htmlElement as HTMLInputElement).disabled)) {
     return false;
   }
+  return isDisplayedElement(element);
+}
+
+function isDisplayedElement(element: Element): boolean {
+  const htmlElement = element as HTMLElement;
   const style = window.getComputedStyle(htmlElement);
   const rect = htmlElement.getBoundingClientRect();
   return style.visibility !== 'hidden' &&
@@ -2675,6 +3157,79 @@ function isClickableButton(button: HTMLButtonElement): boolean {
   return isVisible(button) &&
     !button.disabled &&
     button.getAttribute('aria-disabled') !== 'true';
+}
+
+function isElementTopClickable(element: HTMLElement, scrollIntoView = false): boolean {
+  if (!isVisible(element)) {
+    return false;
+  }
+  if (scrollIntoView) {
+    element.scrollIntoView({ block: 'center', inline: 'center' });
+  }
+  const rect = element.getBoundingClientRect();
+  const points = [
+    [rect.left + rect.width / 2, rect.top + rect.height / 2],
+    [rect.left + Math.max(2, rect.width * 0.2), rect.top + rect.height / 2],
+    [rect.right - Math.max(2, rect.width * 0.2), rect.top + rect.height / 2],
+  ];
+  return points.some(([x, y]) => {
+    if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) {
+      return false;
+    }
+    const top = document.elementFromPoint(x, y);
+    return Boolean(top && (top === element || element.contains(top)));
+  });
+}
+
+function describeTopClickableBlocker(element: HTMLElement): string {
+  if (!isVisible(element)) {
+    return 'not-visible';
+  }
+  const rect = element.getBoundingClientRect();
+  const x = rect.left + rect.width / 2;
+  const y = rect.top + rect.height / 2;
+  if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) {
+    return 'outside-viewport';
+  }
+  const top = document.elementFromPoint(x, y);
+  if (!top) {
+    return 'no-top-element';
+  }
+  if (top === element || element.contains(top)) {
+    return '';
+  }
+  return elementDebugName(top);
+}
+
+function paypalCreateAccountButtonDebug(button: HTMLButtonElement | null): string {
+  if (!button) {
+    return 'button=missing';
+  }
+  const text = compactText(button.textContent || '');
+  const parts = [
+    `id=${button.id || '-'}`,
+    `text=${text || '-'}`,
+    `disabled=${button.disabled ? '1' : '0'}`,
+    `ariaDisabled=${button.getAttribute('aria-disabled') === 'true' ? '1' : '0'}`,
+    `visible=${isVisible(button) ? '1' : '0'}`,
+    `topClickable=${isElementTopClickable(button) ? '1' : '0'}`,
+  ];
+  const blocker = describeTopClickableBlocker(button);
+  if (blocker) {
+    parts.push(`blockedBy=${blocker}`);
+  }
+  return parts.join(', ');
+}
+
+function elementDebugName(element: Element): string {
+  const htmlElement = element as HTMLElement;
+  const tag = element.tagName.toLowerCase();
+  const id = htmlElement.id ? `#${htmlElement.id}` : '';
+  const className = typeof htmlElement.className === 'string'
+    ? htmlElement.className.split(/\s+/).filter(Boolean).slice(0, 3).join('.')
+    : '';
+  const classSuffix = className ? `.${className}` : '';
+  return `${tag}${id}${classSuffix}`;
 }
 
 function isTextControl(element: Element | null): element is HTMLInputElement | HTMLTextAreaElement {
@@ -2811,6 +3366,7 @@ const PAYPAL_FIELDS = {
     'full name',
   ],
   firstName: [
+    'input#countrySpecificKanjiFirstName',
     'input#firstName',
     'input#billingFirstName',
     'input[name="firstName"]',
@@ -2819,12 +3375,33 @@ const PAYPAL_FIELDS = {
     'first name',
   ],
   lastName: [
+    'input#countrySpecificKanjiLastName',
     'input#lastName',
     'input#billingLastName',
     'input[name="lastName"]',
     'input[name="billingLastName"]',
     'input[autocomplete="family-name"]',
     'last name',
+  ],
+  kanaFirstName: [
+    'input#countrySpecificFirstName',
+    'input[name="countrySpecificFirstName"]',
+    '[data-testid="kana-names"] input[autocomplete="given-name"]',
+    '[data-testid="kana-names"] input[name="fname"]',
+  ],
+  kanaLastName: [
+    'input#countrySpecificLastName',
+    'input[name="countrySpecificLastName"]',
+    '[data-testid="kana-names"] input[autocomplete="family-name"]',
+    '[data-testid="kana-names"] input[name="lname"]',
+  ],
+  dateOfBirth: [
+    'input#dateOfBirth',
+    'input[name="dateOfBirth"]',
+    'input[autocomplete="bday"]',
+    'date of birth',
+    'birthday',
+    '生年月日',
   ],
   address1: [
     'input#address1',

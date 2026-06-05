@@ -2,7 +2,9 @@ import type { AddressProfile } from '../features/address-autofill/types';
 
 export const PAGE_ACTION = {
   registerFillEmail: 'opx:register-fill-email',
+  registerFillPhone: 'opx:register-fill-phone',
   registerFillOtp: 'opx:register-fill-otp',
+  registerFillPhoneOtp: 'opx:register-fill-phone-otp',
   registerFillProfile: 'opx:register-fill-profile',
   registerCheckReady: 'opx:register-check-ready',
   registerDebugState: 'opx:register-debug-state',
@@ -26,8 +28,19 @@ export interface RegisterFillEmailAction {
   type: typeof PAGE_ACTION.registerFillEmail;
 }
 
+export interface RegisterFillPhoneAction {
+  type: typeof PAGE_ACTION.registerFillPhone;
+  phoneNumber: string;
+  countryIso: string;
+}
+
 export interface RegisterFillOtpAction {
   type: typeof PAGE_ACTION.registerFillOtp;
+  code: string;
+}
+
+export interface RegisterFillPhoneOtpAction {
+  type: typeof PAGE_ACTION.registerFillPhoneOtp;
   code: string;
 }
 
@@ -109,7 +122,9 @@ export interface OAuthPhonePageStateAction {
 
 export type PageActionMessage =
   | RegisterFillEmailAction
+  | RegisterFillPhoneAction
   | RegisterFillOtpAction
+  | RegisterFillPhoneOtpAction
   | RegisterFillProfileAction
   | RegisterCheckReadyAction
   | RegisterDebugStateAction
@@ -127,6 +142,15 @@ export type PageActionMessage =
   | OAuthContinueConsentAction
   | OAuthPhoneChannelSupportAction
   | OAuthPhonePageStateAction;
+
+export function isRegisterFillPhoneAction(message: unknown): message is RegisterFillPhoneAction {
+  return Boolean(
+    isRecord(message) &&
+      message.type === PAGE_ACTION.registerFillPhone &&
+      typeof message.phoneNumber === 'string' &&
+      typeof message.countryIso === 'string',
+  );
+}
 
 export function isOAuthFillPhoneAction(message: unknown): message is OAuthFillPhoneAction {
   return Boolean(

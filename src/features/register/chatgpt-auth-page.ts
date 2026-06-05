@@ -26,6 +26,8 @@ interface EmailDebugState {
   inputDisabled: boolean;
   inputReadOnly: boolean;
   inputConnected: boolean;
+  urlEmailParamLength: number;
+  urlEmailMatchesExpected: boolean;
   fillMethod: string;
   fillMethodOk: boolean;
   fillImmediateLength: number;
@@ -80,8 +82,12 @@ export function isChatGptLoginPage(): boolean {
     location.pathname.startsWith('/auth/login')
   ) || (
     location.hostname === 'auth.openai.com' &&
-    location.pathname.startsWith('/log-in')
+    isOpenAiLogInPath(location.pathname)
   );
+}
+
+function isOpenAiLogInPath(pathname: string): boolean {
+  return pathname === '/log-in' || pathname.startsWith('/log-in/');
 }
 
 export function getEmailDebugState(expectedEmail = ''): ActionResult {
@@ -92,18 +98,33 @@ export async function fillEmailAndContinue(email: string): Promise<ActionResult>
   lastEmailFillAttempt = null;
   const inputHit = findFirst<HTMLInputElement>(EMAIL_SELECTORS);
   if (!inputHit) {
+    if (urlEmailMatchesExpected(email)) {
+      return clickContinueForExistingEmail(email, 'url-param-no-input', 'URL 已带邮箱参数并点击继续');
+    }
     return fail('没有找到邮箱输入框', collectEmailDebugState(email));
   }
 
   const input = inputHit.element;
+  const inputAlreadyMatches = sameEmail(input.value, email);
   if (!isWritableInput(input)) {
     await waitForWritableInput(input, 3500);
   }
   if (!isWritableInput(input)) {
+    if (inputAlreadyMatches || urlEmailMatchesExpected(email)) {
+      return clickContinueForExistingEmail(email, inputAlreadyMatches ? 'prefilled-readonly-input' : 'url-param-readonly-input', '邮箱已预填并点击继续');
+    }
     return fail('邮箱输入框仍然不可写', collectEmailDebugState(email));
   }
 
-  const fillAttempt = await fillEmailInput(input, email);
+  const fillAttempt = inputAlreadyMatches
+    ? {
+        method: 'prefilled-input',
+        ok: true,
+        immediateLength: input.value.length,
+        afterEventLength: input.value.length,
+        message: '邮箱输入框已预填目标邮箱',
+      }
+    : await fillEmailInput(input, email);
   lastEmailFillAttempt = fillAttempt;
   if (!fillAttempt.ok || !sameEmail(input.value, email)) {
     return fail('邮箱输入框没有接受输入值', collectEmailDebugState(email));
@@ -131,7 +152,37 @@ export async function fillEmailAndContinue(email: string): Promise<ActionResult>
     return fail('点击继续后邮箱输入值丢失，页面没有接收本次输入', debug);
   }
 
-  return ok('已填入邮箱并点击继续', debug);
+  return ok(inputAlreadyMatches ? '邮箱已预填并点击继续' : '已填入邮箱并点击继续', debug);
+}
+
+async function clickContinueForExistingEmail(email: string, method: string, message: string): Promise<ActionResult> {
+  const urlEmail = getUrlEmailParam();
+  const input = findFirst<HTMLInputElement>(EMAIL_SELECTORS)?.element || null;
+  const currentLength = input?.value.length || urlEmail.length;
+  lastEmailFillAttempt = {
+    method,
+    ok: true,
+    immediateLength: currentLength,
+    afterEventLength: currentLength,
+    message: input ? '邮箱输入框已预填目标邮箱' : 'URL 参数已包含目标邮箱',
+  };
+
+  const buttonHit = findSubmitButton();
+  if (!buttonHit) {
+    return fail('没有找到继续按钮', collectEmailDebugState(email));
+  }
+
+  const button = buttonHit.element;
+  if (!isClickableButton(button)) {
+    await waitForClickableButton(button, 3500);
+  }
+  if (!isClickableButton(button)) {
+    return fail('继续按钮仍然不可点击', collectEmailDebugState(email));
+  }
+
+  clickElement(button);
+  await waitForUiTick(120);
+  return ok(message, collectEmailDebugState(email));
 }
 
 function findSubmitButton(): LocatedElement<HTMLButtonElement> | null {
@@ -383,6 +434,8 @@ function collectEmailDebugState(expectedEmail = ''): EmailDebugState {
     inputDisabled: Boolean(input?.disabled),
     inputReadOnly: Boolean(input?.readOnly),
     inputConnected: Boolean(input?.isConnected),
+    urlEmailParamLength: getUrlEmailParam().length,
+    urlEmailMatchesExpected: urlEmailMatchesExpected(expectedEmail),
     fillMethod: fillAttempt?.method || '',
     fillMethodOk: Boolean(fillAttempt?.ok),
     fillImmediateLength: fillAttempt?.immediateLength || 0,
@@ -435,6 +488,19 @@ function describeElement(element: Element | null): string {
 
 function sameEmail(left: string, right: string): boolean {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+function getUrlEmailParam(): string {
+  try {
+    return new URL(location.href).searchParams.get('email') || '';
+  } catch {
+    return '';
+  }
+}
+
+function urlEmailMatchesExpected(expectedEmail: string): boolean {
+  const urlEmail = getUrlEmailParam();
+  return Boolean(urlEmail.trim()) && sameEmail(urlEmail, expectedEmail);
 }
 
 function ok(message: string, data?: unknown): ActionResult {

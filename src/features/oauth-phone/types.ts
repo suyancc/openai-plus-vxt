@@ -1,4 +1,4 @@
-export type OAuthPhoneProviderId = 'smsbower' | 'herosms' | 'smspool' | 'tigersms';
+export type OAuthPhoneProviderId = 'smsbower' | 'herosms' | 'smspool' | 'tigersms' | 'foxsms';
 
 export type OAuthPhoneRuntimeProviderId = OAuthPhoneProviderId | 'api';
 
@@ -25,7 +25,7 @@ export interface OAuthPhoneProviderDefinition {
   baseUrl: string;
   supportsV2: boolean;
   defaultServiceCode: string;
-  priceCurrency: 'USD' | 'RUB';
+  priceCurrency: 'USD' | 'RUB' | 'CNY';
 }
 
 export interface OAuthPhoneProviderSettings {

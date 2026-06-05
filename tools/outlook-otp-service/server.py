@@ -2,16 +2,21 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import signal
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
+from outlook_mail.accounts import parse_account_line
+from outlook_mail.parser import extract_otp, parse_message
 from outlook_mail.web import fetch_message as fetch_outlook_message
 from outlook_mail.web import fetch_messages as fetch_outlook_messages
 
@@ -44,6 +49,18 @@ class OutlookMessageRequest(BaseModel):
     use_password: bool = False
 
 
+class OutlookExtractRequest(BaseModel):
+    content: str = Field(..., min_length=1)
+    limit: int = 10
+    mailbox: str = "default"
+    query: str = ""
+    unseen_only: bool = False
+    mark_seen: bool = False
+    tenant: str = "consumers"
+    use_password: bool = False
+    since: float | None = None
+
+
 app = FastAPI(title=APP_NAME, version=APP_VERSION)
 app.add_middleware(
     CORSMiddleware,
@@ -60,6 +77,7 @@ def index() -> dict[str, str]:
         "version": APP_VERSION,
         "status": "ok",
         "docs": "/docs",
+        "extract": "/extract",
     }
 
 
@@ -69,6 +87,19 @@ def health() -> dict[str, str]:
         "ok": "true",
         "version": APP_VERSION,
     }
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> Response:
+    return Response(status_code=204)
+
+
+@app.get("/extract", response_class=HTMLResponse)
+def extract_page() -> HTMLResponse:
+    html_path = resource_path("static", "extract.html")
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="extract page not found")
+    return HTMLResponse(html_path.read_text(encoding="utf-8"))
 
 
 @app.post("/api/outlook/fetch")
@@ -128,6 +159,159 @@ def outlook_message(req: OutlookMessageRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.post("/api/outlook/extract")
+def outlook_extract(req: OutlookExtractRequest) -> dict[str, Any]:
+    content = str(req.content or "")
+    log(f"开始解析粘贴邮件内容：字符数={len(content)}")
+    try:
+        account_line = content.strip()
+        if looks_like_account_line(account_line):
+            return extract_from_account_line(
+                account_line,
+                limit=req.limit,
+                mailbox=req.mailbox,
+                query=req.query,
+                unseen_only=req.unseen_only,
+                mark_seen=req.mark_seen,
+                tenant=req.tenant,
+                use_password=req.use_password,
+                since=req.since,
+            )
+
+        record = parse_message(content)
+        item = record.to_dict()
+        direct_otp = extract_otp(content)
+        digit_candidates = extract_digit_candidates(content)
+        if direct_otp and not item.get("otp"):
+            item["otp"] = direct_otp
+        if digit_candidates and not item.get("otp") and len(content) <= 5000:
+            item["otp"] = digit_candidates[0]
+        item["partial"] = False
+        item["input_length"] = len(content)
+        item["digit_candidates"] = digit_candidates
+        if item.get("otp"):
+            log(f"粘贴内容提取到验证码：验证码={item.get('otp')}，主题={short_text(item.get('subject'))}")
+        else:
+            log(f"粘贴内容未提取到验证码：主题={short_text(item.get('subject'))}")
+        return {"message": item}
+    except Exception as exc:
+        log(f"解析粘贴邮件内容失败：错误={short_text(exc)}")
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def extract_from_account_line(
+    account_line: str,
+    *,
+    limit: int = 10,
+    mailbox: str = "default",
+    query: str = "",
+    unseen_only: bool = False,
+    mark_seen: bool = False,
+    tenant: str = "consumers",
+    use_password: bool = False,
+    since: float | None = None,
+) -> dict[str, Any]:
+    email = account_email(account_line)
+    fetch_limit = normalize_extract_limit(limit)
+    log(f"检测到账号行，开始拉取最近邮件：邮箱={email}，邮箱目录={mailbox}，数量={fetch_limit}")
+    result = fetch_outlook_messages(
+        account_line,
+        limit=fetch_limit,
+        mailbox=mailbox,
+        query=str(query or "").strip(),
+        unseen_only=unseen_only,
+        mark_seen=mark_seen,
+        tenant=tenant,
+        use_password=use_password,
+        since=since,
+    )
+    messages = list(result.get("messages") or [])
+    selected = next((item for item in messages if str(item.get("otp") or "").strip()), messages[0] if messages else None)
+    if selected:
+        selected = hydrate_extract_message(account_line, selected, tenant=tenant, use_password=use_password)
+        otp = str(selected.get("otp") or "").strip()
+        if otp:
+            log(f"账号行提取到验证码：邮箱={email}，验证码={otp}，主题={short_text(selected.get('subject'))}")
+        else:
+            log(f"账号行未提取到验证码：邮箱={email}，邮件数量={len(messages)}")
+    else:
+        selected = empty_extract_message(account_line, result)
+        log(f"账号行没有拉取到邮件：邮箱={email}")
+
+    selected["input_type"] = "account_line"
+    selected["input_length"] = len(account_line)
+    selected["digit_candidates"] = []
+    return {
+        "message": selected,
+        "messages": messages,
+        "count": len(messages),
+        "source": "account_line",
+        "account": result.get("account"),
+        "mailboxes": result.get("mailboxes"),
+        "fetched_mailboxes": result.get("fetched_mailboxes"),
+        "folder_errors": result.get("folder_errors"),
+    }
+
+
+def looks_like_account_line(value: str) -> bool:
+    text = str(value or "").strip()
+    if "\n" in text or "\r" in text or "----" not in text:
+        return False
+    try:
+        parse_account_line(text)
+        return True
+    except Exception:
+        return False
+
+
+def hydrate_extract_message(
+    account_line: str,
+    selected: dict[str, Any],
+    *,
+    tenant: str = "consumers",
+    use_password: bool = False,
+) -> dict[str, Any]:
+    item = dict(selected)
+    uid = str(item.get("uid") or "").strip()
+    mailbox = str(item.get("mailbox") or "INBOX").strip() or "INBOX"
+    if uid:
+        try:
+            full = fetch_outlook_message(account_line, uid=uid, mailbox=mailbox, tenant=tenant, use_password=use_password)
+            detail = dict(full.get("message") or {})
+            if detail:
+                item.update(detail)
+        except Exception:
+            pass
+    item["text_body"] = str(item.get("text_body") or item.get("body_excerpt") or item.get("preview_text") or "")
+    item["html_body"] = str(item.get("html_body") or "")
+    item["raw_headers"] = str(item.get("raw_headers") or "")
+    item["raw_excerpt"] = str(item.get("raw_excerpt") or "")
+    item["body_excerpt"] = str(item.get("body_excerpt") or "")
+    item["partial"] = bool(item.get("partial")) if "partial" in item else not bool(item.get("text_body"))
+    return item
+
+
+def empty_extract_message(account_line: str, result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "uid": "",
+        "message_id": "",
+        "from_addr": "",
+        "to_addr": "",
+        "subject": "",
+        "date": "",
+        "received_at": 0,
+        "text_body": "",
+        "html_body": "",
+        "raw_headers": "",
+        "raw_excerpt": "",
+        "body_excerpt": "",
+        "otp": "",
+        "partial": False,
+        "account": result.get("account"),
+        "account_email": account_email(account_line),
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=APP_NAME)
     parser.add_argument("--host", default=DEFAULT_HOST, help="Host to bind to")
@@ -139,14 +323,19 @@ def main(argv: list[str] | None = None) -> int:
     configure_stdio()
     install_exit_handlers()
     args = build_parser().parse_args(argv)
-    print(f"{APP_NAME} v{APP_VERSION}")
-    print(f"Listening on http://{args.host}:{args.port}")
-    print("Compatible endpoint: POST /api/outlook/fetch")
+    base_url = f"http://{args.host}:{args.port}"
+    print(f"{APP_NAME} v{APP_VERSION}", flush=True)
+    print("服务已启动，可以开始取 Outlook 邮件。", flush=True)
+    print(f"网页取件地址：{base_url}/extract", flush=True)
+    print(f"健康检查地址：{base_url}/health", flush=True)
+    print("接口地址：POST /api/outlook/fetch、POST /api/outlook/message", flush=True)
+    print("关闭方式：按 Ctrl+C 退出服务。", flush=True)
     uvicorn.run(
         app,
         host=args.host,
         port=args.port,
-        log_level="info",
+        log_level="warning",
+        access_log=False,
     )
     return 0
 
@@ -223,6 +412,33 @@ def normalize_fetch_limit(value: Any) -> int:
     except Exception:
         raw = DEFAULT_FETCH_LIMIT
     return max(1, min(raw, DEFAULT_FETCH_LIMIT))
+
+
+def normalize_extract_limit(value: Any) -> int:
+    try:
+        raw = int(value or 10)
+    except Exception:
+        raw = 10
+    return max(1, min(raw, 30))
+
+
+def extract_digit_candidates(value: str, *, limit: int = 8) -> list[str]:
+    seen: set[str] = set()
+    candidates: list[str] = []
+    for match in re.finditer(r"(?<!\d)(\d{6})(?!\d)", str(value or "")):
+        candidate = match.group(1)
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        candidates.append(candidate)
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
+def resource_path(*parts: str) -> Path:
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return base.joinpath(*parts)
 
 
 def log(message: str) -> None:

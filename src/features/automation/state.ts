@@ -13,6 +13,7 @@ import type {
   AutomationSettings,
   AutomationSettingsParseResult,
   AutomationSmsTarget,
+  AutomationSmsSourceMode,
   AutomationState,
   AutomationStepId,
   AutomationStepRecord,
@@ -48,7 +49,7 @@ export async function saveAutomationSettings(patch: Partial<AutomationSettings>)
 export function parseAutomationSettings(settings: AutomationSettings, current?: AutomationState): AutomationSettingsParseResult {
   return {
     ...parseAutomationEmails(settings.rawEmails, current?.emails || []),
-    ...parseAutomationSms(settings.rawSms, current?.smsTargets || []),
+    ...parseAutomationSms(settings.rawSms, settings.smsSourceMode || 'api', current?.smsTargets || []),
   };
 }
 
@@ -85,6 +86,15 @@ export async function resetAutomationProgress(): Promise<AutomationState> {
       currentStepId: '',
       selectedEmailId: '',
       selectedSmsId: '',
+      selectedRegisterPhoneId: '',
+      registerPhoneSource: '',
+      registerPhoneNumber: '',
+      registerPhoneCountryId: '',
+      registerPhoneCountryIso: '',
+      registerPhoneServiceCode: '',
+      registerPhoneActivationId: '',
+      registerPhoneOperator: '',
+      registerPhoneCost: 0,
       checkoutUrl: '',
       sessionEmail: '',
       targetTabId: 0,
@@ -241,35 +251,119 @@ function parseAutomationEmails(rawEmails: string, existing: AutomationEmailAccou
   return { emails, emailErrors };
 }
 
-function parseAutomationSms(rawSms: string, existing: AutomationSmsTarget[]): {
+function parseAutomationSms(rawSms: string, sourceMode: AutomationSmsSourceMode, existing: AutomationSmsTarget[]): {
   smsTargets: AutomationSmsTarget[];
   smsErrors: string[];
 } {
   const existingById = new Map(existing.map((item) => [item.id, item]));
-  const parsed = parseSmsRelayTargets(rawSms);
-  const smsTargets = parsed.targets.map((target) => {
-    const rawInput = `${target.phone}----${target.url}`;
-    const id = target.id || stableId(rawInput);
-    const previous = existingById.get(id);
-    return {
-      id,
-      rawInput,
-      phone: target.phone,
-      url: target.url,
-      disabled: previous?.disabled || false,
-      disabledAt: previous?.disabledAt || 0,
-      disabledReason: previous?.disabledReason || '',
-      useCount: previous?.useCount || 0,
-      lastUsedAt: previous?.lastUsedAt || 0,
-      lastCodeAt: previous?.lastCodeAt || 0,
-      lastMessage: previous?.lastMessage || '',
-    };
-  });
+  if (sourceMode === 'foxsms') {
+    return parseFoxSmsAutomationTargets(rawSms, existingById);
+  }
+  return parseApiAutomationTargets(rawSms, existingById);
+}
 
+function parseApiAutomationTargets(
+  rawSms: string,
+  existingById: Map<string, AutomationSmsTarget>,
+): {
+  smsTargets: AutomationSmsTarget[];
+  smsErrors: string[];
+} {
+  const parsed = parseSmsRelayTargets(rawSms);
   return {
-    smsTargets,
+    smsTargets: parsed.targets.map((target) => {
+      const rawInput = `${target.phone}----${target.url}`;
+      const id = target.id || stableId(rawInput);
+      const previous = existingById.get(id);
+      return buildAutomationSmsTarget({
+        id,
+        rawInput,
+        source: 'api',
+        phone: target.phone,
+        url: target.url,
+        previous,
+      });
+    }),
     smsErrors: parsed.errors,
   };
+}
+
+function parseFoxSmsAutomationTargets(
+  rawSms: string,
+  existingById: Map<string, AutomationSmsTarget>,
+): {
+  smsTargets: AutomationSmsTarget[];
+  smsErrors: string[];
+} {
+  const smsTargets: AutomationSmsTarget[] = [];
+  const smsErrors: string[] = [];
+  const seen = new Set<string>();
+
+  rawSms.split(/\r?\n/).forEach((line, index) => {
+    const rawInput = line.trim();
+    if (!rawInput) {
+      return;
+    }
+    if (rawInput.includes('----')) {
+      smsErrors.push(`第 ${index + 1} 行：Fox SMS 模式只填写手机号，不需要 API 链接`);
+      return;
+    }
+    const phone = normalizeFoxSmsPhone(rawInput);
+    if (!phone) {
+      smsErrors.push(`第 ${index + 1} 行：手机号为空`);
+      return;
+    }
+    if (!/^\d{7,15}$/.test(phone)) {
+      smsErrors.push(`第 ${index + 1} 行：手机号格式不正确`);
+      return;
+    }
+    const id = `foxsms:${phone}`;
+    if (seen.has(id)) {
+      return;
+    }
+    seen.add(id);
+    smsTargets.push(buildAutomationSmsTarget({
+      id,
+      rawInput: phone,
+      source: 'foxsms',
+      phone,
+      url: '',
+      previous: existingById.get(id),
+    }));
+  });
+
+  return { smsTargets, smsErrors };
+}
+
+function buildAutomationSmsTarget(input: {
+  id: string;
+  rawInput: string;
+  source: AutomationSmsSourceMode;
+  phone: string;
+  url: string;
+  previous?: AutomationSmsTarget;
+}): AutomationSmsTarget {
+  return {
+    id: input.id,
+    rawInput: input.rawInput,
+    source: input.source,
+    phone: input.phone,
+    url: input.url,
+    activationId: input.previous?.source === input.source ? input.previous.activationId : '',
+    countryCode: input.source === 'foxsms' ? input.previous?.countryCode || 'jpn' : '',
+    projectId: input.source === 'foxsms' ? input.previous?.projectId || '35' : '',
+    disabled: input.previous?.disabled || false,
+    disabledAt: input.previous?.disabledAt || 0,
+    disabledReason: input.previous?.disabledReason || '',
+    useCount: input.previous?.useCount || 0,
+    lastUsedAt: input.previous?.lastUsedAt || 0,
+    lastCodeAt: input.previous?.lastCodeAt || 0,
+    lastMessage: input.previous?.lastMessage || '',
+  };
+}
+
+function normalizeFoxSmsPhone(value: string): string {
+  return value.replace(/[^\d]/g, '');
 }
 
 function stableId(value: string): string {

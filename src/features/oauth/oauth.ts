@@ -5,6 +5,8 @@ export const OPENAI_OAUTH_REDIRECT_URI = 'http://localhost:1455/auth/callback';
 export const OPENAI_OAUTH_AUTH_URL = 'https://auth.openai.com/oauth/authorize';
 export const OPENAI_OAUTH_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 export const OPENAI_OAUTH_SCOPE = 'openid email profile offline_access';
+const OAUTH_TOKEN_FETCH_ATTEMPTS = 3;
+const OAUTH_TOKEN_FETCH_RETRY_DELAY_MS = 1_200;
 
 export interface OAuthSession {
   codeVerifier: string;
@@ -120,13 +122,10 @@ export async function exchangeOAuthCode(code: string, session: Pick<OAuthState, 
     code_verifier: codeVerifier,
   });
 
+  const bodyText = body.toString();
   let response: Response;
   try {
-    response = await fetch(OPENAI_OAUTH_TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-    });
+    response = await fetchOAuthTokenWithRetry(bodyText);
   } catch (error) {
     throw new OAuthTokenExchangeError(`OAuth token 请求失败：${String(error)}`, createTokenExchangeDiagnostics({
       status: 0,
@@ -202,6 +201,30 @@ export async function exchangeOAuthCode(code: string, session: Pick<OAuthState, 
     refresh_token: String(payload.refresh_token || ''),
     type: 'codex',
   };
+}
+
+async function fetchOAuthTokenWithRetry(bodyText: string): Promise<Response> {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= OAUTH_TOKEN_FETCH_ATTEMPTS; attempt += 1) {
+    try {
+      return await fetch(OPENAI_OAUTH_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: bodyText,
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt >= OAUTH_TOKEN_FETCH_ATTEMPTS) {
+        break;
+      }
+      await sleep(OAUTH_TOKEN_FETCH_RETRY_DELAY_MS * attempt);
+    }
+  }
+  throw lastError || new Error('OAuth token fetch failed');
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function extractJwtPayload(token: string): Record<string, unknown> {

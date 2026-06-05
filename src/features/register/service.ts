@@ -2,18 +2,23 @@ import { getBrowserTab, sendActiveTabMessage, sendTabMessage } from '../../app/a
 import { PAGE_ACTION } from '../../app/page-actions';
 import { loadRegisterState, saveRegisterState } from '../../app/state';
 import { parseAccountInput } from './account-input';
+import { isPhoneVerificationPath } from './phone-verification-url';
 import type { RegisterReadyKind } from './page-ready';
 import type { ActionResult, PageState, RegisterState } from './types';
+import { countryIsoToCallingCode } from '../oauth-phone/country-map';
 
 export const CHATGPT_REGISTER_URL = 'https://chatgpt.com/auth/login';
 
 const OUTLOOK_OTP_TIMEOUT_MS = 180_000;
 const OUTLOOK_OTP_INTERVAL_MS = 5_000;
 const REGISTER_ELEMENT_READY_TIMEOUT_MS = 5_000;
-const REGISTER_OTP_ELEMENT_READY_TIMEOUT_MS = 15_000;
+const REGISTER_OTP_ELEMENT_READY_TIMEOUT_MS = 30_000;
+const REGISTER_PROFILE_ELEMENT_READY_TIMEOUT_MS = 30_000;
 const REGISTER_PASSWORD_ELEMENT_READY_TIMEOUT_MS = 15_000;
 const REGISTER_EMAIL_NAVIGATION_TIMEOUT_MS = 60_000;
 const REGISTER_EMAIL_PAGE_LOAD_TIMEOUT_MS = 20_000;
+const REGISTER_PHONE_NAVIGATION_TIMEOUT_MS = 60_000;
+const DEFAULT_REGISTER_PHONE_PASSWORD = 'openaiplusvxt';
 
 let autoOutlookOtpStarted = false;
 
@@ -75,10 +80,10 @@ export function pageStateFromUrl(rawUrl: string): PageState {
   if (url.hostname === 'chatgpt.com' && url.pathname.startsWith('/auth/login')) {
     return { kind: 'login', label: 'ChatGPT 登录页', canFillEmail: true, canFillOtp: false, canFillProfile: false };
   }
-  if (url.hostname === 'auth.openai.com' && url.pathname.startsWith('/log-in/password')) {
+  if (url.hostname === 'auth.openai.com' && isOpenAiLogInPasswordPath(url.pathname)) {
     return { kind: 'password', label: 'OpenAI 登录密码页', canFillEmail: false, canFillPassword: true, canFillOtp: false, canFillProfile: false };
   }
-  if (url.hostname === 'auth.openai.com' && url.pathname.startsWith('/log-in')) {
+  if (url.hostname === 'auth.openai.com' && isOpenAiLogInPath(url.pathname)) {
     return { kind: 'login', label: 'OpenAI 登录页', canFillEmail: true, canFillOtp: false, canFillProfile: false };
   }
   if (url.hostname === 'auth.openai.com' && url.pathname.startsWith('/create-account/password')) {
@@ -86,6 +91,9 @@ export function pageStateFromUrl(rawUrl: string): PageState {
   }
   if (url.hostname === 'auth.openai.com' && url.pathname.startsWith('/email-verification')) {
     return { kind: 'email-verification', label: '邮箱验证码页', canFillEmail: false, canFillOtp: true, canFillProfile: false };
+  }
+  if (url.hostname === 'auth.openai.com' && isPhoneVerificationPath(url.pathname)) {
+    return { kind: 'phone-verification', label: '手机验证码页', canFillEmail: false, canFillOtp: true, canFillProfile: false };
   }
   if (url.hostname === 'auth.openai.com' && url.pathname.startsWith('/about-you')) {
     return { kind: 'about-you', label: '资料填写页', canFillEmail: false, canFillOtp: false, canFillProfile: true };
@@ -224,6 +232,70 @@ export async function fillEmailOtp(code: string, tabId?: number): Promise<Action
   return sendPageAction<ActionResult>({ type: PAGE_ACTION.registerFillOtp, code }, tabId);
 }
 
+export async function fillRegisterPhoneNumber(phoneNumber: string, countryIso: string, tabId?: number): Promise<ActionResult> {
+  const page = await getCurrentRegisterPageState(tabId);
+  if (!page.canFillEmail) {
+    return fail('当前页面不是 ChatGPT 登录页');
+  }
+  let result = await sendPageAction<ActionResult>({
+    type: PAGE_ACTION.registerFillPhone,
+    phoneNumber,
+    countryIso,
+  }, tabId);
+  if (!result.ok && isPhoneInputRejected(result.message)) {
+    const mainWorldResult = await fillRegisterPhoneInMainWorld(phoneNumber, countryIso, tabId);
+    result = mainWorldResult.ok
+      ? {
+          ...mainWorldResult,
+          message: `${mainWorldResult.message}；已使用页面主环境逐字符输入`,
+        }
+      : {
+          ...mainWorldResult,
+          message: `${result.message}；主环境逐字符输入也失败：${mainWorldResult.message}`,
+          data: mainWorldResult.data || result.data,
+        };
+  }
+  if (!result.ok && !isLikelyNavigationResponseClosed(result.message)) {
+    return result;
+  }
+  const progress = await waitForRegisterPhoneProgress(REGISTER_PHONE_NAVIGATION_TIMEOUT_MS, tabId);
+  if (!progress.ok && isLikelyNavigationResponseClosed(result.message)) {
+    return {
+      ...progress,
+      message: `手机号已提交但等待跳转失败：${progress.message}`,
+      data: progress.data || result.data,
+    };
+  }
+  if (!progress.ok) {
+    return {
+      ...progress,
+      message: `${result.message}；${progress.message}`,
+      data: progress.data || result.data,
+    };
+  }
+  return {
+    ...result,
+    ok: true,
+    message: `${result.message}；${progress.message}`,
+    data: progress.data || result.data,
+  };
+}
+
+export async function fillRegisterPhoneOtp(code: string, tabId?: number): Promise<ActionResult> {
+  const page = await getCurrentRegisterPageState(tabId);
+  if (page.kind !== 'phone-verification') {
+    return fail('当前页面不是手机验证码页');
+  }
+  const ready = await waitForRegisterPageReady('phone-otp', REGISTER_OTP_ELEMENT_READY_TIMEOUT_MS, tabId);
+  if (!ready.ok) {
+    return ready;
+  }
+  return sendPageAction<ActionResult>({
+    type: PAGE_ACTION.registerFillPhoneOtp,
+    code,
+  }, tabId);
+}
+
 export async function waitForOutlookOtpAndSubmit(options: OutlookOtpWaitOptions = {}): Promise<ActionResult> {
   if (options.requireVerificationPage !== false) {
     const page = await getCurrentRegisterPageState(options.tabId);
@@ -320,7 +392,7 @@ export async function fillProfileAndCreateAccount(tabId?: number): Promise<Actio
   if (!page.canFillProfile) {
     return fail('当前页面不是资料填写页');
   }
-  const ready = await waitForRegisterPageReady('profile', REGISTER_ELEMENT_READY_TIMEOUT_MS, tabId);
+  const ready = await waitForRegisterPageReady('profile', REGISTER_PROFILE_ELEMENT_READY_TIMEOUT_MS, tabId);
   if (!ready.ok) {
     return ready;
   }
@@ -518,6 +590,118 @@ async function waitForRegisterEmailProgress(navigationTimeoutMs: number, email: 
   };
 }
 
+async function waitForRegisterPhoneProgress(navigationTimeoutMs: number, tabId?: number): Promise<ActionResult> {
+  const startedAt = Date.now();
+  const deadline = startedAt + navigationTimeoutMs;
+  let lastUrl = '';
+  let lastKind = 'unknown';
+  let lastStatus = '';
+  let passwordAttempts = 0;
+  let lastPasswordAttemptAt = 0;
+  let lastPasswordResult: ActionResult | null = null;
+  let lastPasswordLoad: ActionResult | null = null;
+
+  while (Date.now() <= deadline) {
+    const tab = await getBrowserTab(tabId);
+    lastUrl = tab?.url || '';
+    lastStatus = tab?.status || '';
+    const page = pageStateFromUrl(lastUrl);
+    lastKind = page.kind;
+    if (page.kind === 'password') {
+      const shouldSubmitPassword = passwordAttempts === 0 || Date.now() - lastPasswordAttemptAt >= 6_000;
+      if (shouldSubmitPassword) {
+        const load = await waitForTabComplete(REGISTER_EMAIL_PAGE_LOAD_TIMEOUT_MS, tabId);
+        lastPasswordLoad = load;
+        const passwordResult = await fillOpenAiPassword(DEFAULT_REGISTER_PHONE_PASSWORD, tabId);
+        passwordAttempts += 1;
+        lastPasswordAttemptAt = Date.now();
+        lastPasswordResult = passwordResult;
+        if (!passwordResult.ok) {
+          const passwordData = isObjectRecord(passwordResult.data) ? passwordResult.data : {};
+          return failWithData(
+            `已进入手机号注册密码页，但默认密码填写失败：${passwordResult.message}`,
+            {
+              ...passwordData,
+              url: lastUrl,
+              pageKind: page.kind,
+              tabStatus: actionDataStatus(load.data) || lastStatus,
+              loadMessage: load.message,
+              passwordAttempts,
+              defaultPasswordLength: DEFAULT_REGISTER_PHONE_PASSWORD.length,
+              navigationMs: Date.now() - startedAt,
+            },
+          );
+        }
+      }
+      await delay(700);
+      continue;
+    }
+    if (page.kind === 'phone-verification') {
+      const load = await waitForTabComplete(REGISTER_EMAIL_PAGE_LOAD_TIMEOUT_MS, tabId);
+      const ready = await waitForRegisterPageReady('phone-otp', REGISTER_OTP_ELEMENT_READY_TIMEOUT_MS, tabId);
+      if (!ready.ok) {
+        return {
+          ok: true,
+          message: load.ok
+            ? `已进入手机验证码页，验证码输入框暂未就绪，将在第 5 步继续等待：${ready.message}`
+            : `已进入手机验证码页，页面加载未完成或验证码输入框暂未就绪，将在第 5 步继续等待：${load.message}；${ready.message}`,
+          data: {
+            url: lastUrl,
+            pageKind: page.kind,
+            tabStatus: actionDataStatus(load.data) || lastStatus,
+            loadMessage: load.message,
+            readyMessage: ready.message,
+            otpReadyPending: true,
+            navigationMs: Date.now() - startedAt,
+          },
+        };
+      }
+      return {
+        ok: true,
+        message: '已进入手机验证码页，验证码输入框已就绪',
+        data: {
+          url: lastUrl,
+          pageKind: page.kind,
+          tabStatus: actionDataStatus(load.data) || lastStatus,
+          loadMessage: load.message,
+          readyMessage: ready.message,
+          navigationMs: Date.now() - startedAt,
+        },
+      };
+    }
+    if (page.kind === 'about-you') {
+      return {
+        ok: true,
+        message: '手机号已验证，页面已进入资料填写页',
+        data: {
+          url: lastUrl,
+          pageKind: page.kind,
+          tabStatus: lastStatus,
+          navigationMs: Date.now() - startedAt,
+          skippedOtpFill: true,
+        },
+      };
+    }
+    await delay(350);
+  }
+
+  return {
+    ok: false,
+    message: `提交手机号后 ${Math.round(navigationTimeoutMs / 1000)} 秒内没有跳转到手机验证码页，最后页面：${shortUrl(lastUrl) || '未知'}`,
+    data: {
+      url: lastUrl,
+      pageKind: lastKind,
+      tabStatus: lastStatus,
+      passwordAttempts,
+      lastPasswordMessage: lastPasswordResult?.message || '',
+      lastPasswordData: lastPasswordResult?.data || null,
+      lastPasswordLoadMessage: lastPasswordLoad?.message || '',
+      defaultPasswordLength: DEFAULT_REGISTER_PHONE_PASSWORD.length,
+      navigationMs: Date.now() - startedAt,
+    },
+  };
+}
+
 export async function fillOpenAiPassword(password: string, tabId?: number): Promise<ActionResult> {
   const tab = await getBrowserTab(tabId);
   if (!tab || typeof tab.id !== 'number') {
@@ -581,6 +765,21 @@ export async function fillOpenAiPassword(password: string, tabId?: number): Prom
             button.dataset.disabled !== 'true';
         }
 
+        function sleep(ms: number): Promise<void> {
+          return new Promise((resolve) => window.setTimeout(resolve, ms));
+        }
+
+        async function waitForClickableButton(button: HTMLButtonElement, timeoutMs: number): Promise<boolean> {
+          const started = Date.now();
+          while (Date.now() - started < timeoutMs) {
+            if (isClickableButton(button)) {
+              return true;
+            }
+            await sleep(100);
+          }
+          return isClickableButton(button);
+        }
+
         function setNativeValue(input: HTMLInputElement, value: string): void {
           const ownDescriptor = Object.getOwnPropertyDescriptor(input, 'value');
           const prototypeDescriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value') ||
@@ -635,13 +834,13 @@ export async function fillOpenAiPassword(password: string, tabId?: number): Prom
           ];
           for (const selector of selectors) {
             const button = document.querySelector<HTMLButtonElement>(selector);
-            if (button && isClickableButton(button)) {
+            if (button && isVisible(button)) {
               return button;
             }
           }
           return Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((button) => {
             const text = (button.textContent || '').trim().toLowerCase();
-            return isClickableButton(button) && (text === '继续' || text === 'continue');
+            return isVisible(button) && (text === '继续' || text === 'continue');
           }) || null;
         }
 
@@ -673,7 +872,7 @@ export async function fillOpenAiPassword(password: string, tabId?: number): Prom
         }
         setNativeValue(passwordInput, targetPassword);
         dispatchInputEvent(passwordInput, targetPassword);
-        await new Promise((resolve) => window.setTimeout(resolve, 200));
+        await sleep(250);
 
         if (passwordInput.value !== targetPassword) {
           return {
@@ -689,19 +888,54 @@ export async function fillOpenAiPassword(password: string, tabId?: number): Prom
         }
 
         const button = findSubmitButton();
+        const buttonData = button
+          ? {
+              buttonFound: true,
+              buttonText: (button.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 80),
+              buttonDisabled: button.disabled,
+              buttonAriaDisabled: button.getAttribute('aria-disabled') || '',
+              buttonType: button.type,
+              buttonName: button.name,
+              buttonValue: button.value,
+            }
+          : { buttonFound: false };
         if (!button) {
           return {
             ok: false,
             message: '没有找到密码页继续按钮',
-            data: { url: location.href, readyState: document.readyState, passwordLength: passwordInput.value.length },
+            data: { url: location.href, readyState: document.readyState, passwordLength: passwordInput.value.length, ...buttonData },
+          };
+        }
+
+        const clickable = await waitForClickableButton(button, 5_000);
+        if (!clickable) {
+          return {
+            ok: false,
+            message: '密码页继续按钮未变为可点击',
+            data: {
+              url: location.href,
+              readyState: document.readyState,
+              passwordLength: passwordInput.value.length,
+              ...buttonData,
+              buttonDisabledAfterWait: button.disabled,
+              buttonAriaDisabledAfterWait: button.getAttribute('aria-disabled') || '',
+            },
           };
         }
 
         clickElement(button);
+        await sleep(300);
         return {
           ok: true,
           message: '已填写密码并点击继续',
-          data: { url: location.href, readyState: document.readyState, passwordLength: targetPassword.length },
+          data: {
+            url: location.href,
+            readyState: document.readyState,
+            passwordLength: targetPassword.length,
+            ...buttonData,
+            buttonDisabledAfterWait: button.disabled,
+            buttonAriaDisabledAfterWait: button.getAttribute('aria-disabled') || '',
+          },
         };
       },
     });
@@ -1085,6 +1319,347 @@ async function fillRegisterEmailInMainWorld(email: string, tabId?: number): Prom
   }
 }
 
+async function fillRegisterPhoneInMainWorld(
+  phoneNumber: string,
+  countryIso: string,
+  tabId?: number,
+): Promise<ActionResult> {
+  const tab = await getBrowserTab(tabId);
+  if (!tab || typeof tab.id !== 'number') {
+    return fail('没有可操作的当前标签页');
+  }
+
+  const candidates = phoneInputCandidates(phoneNumber, countryIso);
+  try {
+    const results = await browser.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: 'MAIN',
+      args: [candidates],
+      func: async (targetValues: string[]) => {
+        const phoneSelectors = [
+          'input#phoneNumberInput',
+          'input[name="phoneNumberInput"]',
+          'input[type="tel"]',
+          'input[autocomplete="tel"]',
+          'input[name*="phone" i]',
+          'input[id*="phone" i]',
+          'input[inputmode="tel"]',
+          'input[inputmode="numeric"]',
+        ];
+        const continueLabels = ['继续', 'continue', '下一步', 'next'];
+
+        function sleep(ms: number): Promise<void> {
+          return new Promise((resolve) => window.setTimeout(resolve, ms));
+        }
+
+        function isVisible(element: Element): boolean {
+          const htmlElement = element as HTMLElement;
+          const style = window.getComputedStyle(htmlElement);
+          const rect = htmlElement.getBoundingClientRect();
+          return style.visibility !== 'hidden' &&
+            style.display !== 'none' &&
+            rect.width > 0 &&
+            rect.height > 0;
+        }
+
+        function isWritableInput(input: HTMLInputElement): boolean {
+          return isVisible(input) && !input.disabled && !input.readOnly && input.isConnected;
+        }
+
+        function isClickableButton(button: HTMLButtonElement): boolean {
+          return isVisible(button) &&
+            !button.disabled &&
+            button.getAttribute('aria-disabled') !== 'true' &&
+            button.dataset.disabled !== 'true';
+        }
+
+        function findPhoneInput(): HTMLInputElement | null {
+          for (const selector of phoneSelectors) {
+            const input = Array.from(document.querySelectorAll<HTMLInputElement>(selector)).find(isVisible);
+            if (input) {
+              return input;
+            }
+          }
+          return null;
+        }
+
+        function findContinueButton(): HTMLButtonElement | null {
+          for (const selector of [
+            'button[type="submit"]',
+            'button[data-dd-action-name="Continue"]',
+            'form button:not([type="button"])',
+          ]) {
+            const button = Array.from(document.querySelectorAll<HTMLButtonElement>(selector)).find(isVisible);
+            if (button) {
+              return button;
+            }
+          }
+          return Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((button) => {
+            if (!isVisible(button)) {
+              return false;
+            }
+            const text = (button.textContent || button.ariaLabel || '').replace(/\s+/g, ' ').trim().toLowerCase();
+            return continueLabels.some((label) => text.includes(label));
+          }) || null;
+        }
+
+        function clickElement(element: HTMLElement): void {
+          element.scrollIntoView({ block: 'center', inline: 'center' });
+          for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+            const EventCtor = type.startsWith('pointer') ? PointerEvent : MouseEvent;
+            element.dispatchEvent(new EventCtor(type, {
+              bubbles: true,
+              cancelable: true,
+              composed: true,
+              button: 0,
+              buttons: type.endsWith('down') ? 1 : 0,
+              pointerId: 1,
+              pointerType: 'mouse',
+            }));
+          }
+          element.click();
+        }
+
+        function setNativeValue(input: HTMLInputElement, value: string): void {
+          const ownDescriptor = Object.getOwnPropertyDescriptor(input, 'value');
+          const prototypeDescriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value') ||
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+          const setter = prototypeDescriptor?.set || ownDescriptor?.set;
+          if (setter) {
+            setter.call(input, value);
+            return;
+          }
+          input.value = value;
+        }
+
+        function dispatchTextInput(input: HTMLInputElement, text: string): void {
+          try {
+            input.dispatchEvent(new InputEvent('beforeinput', {
+              bubbles: true,
+              cancelable: true,
+              composed: true,
+              inputType: 'insertText',
+              data: text,
+            }));
+          } catch {
+            // Older pages may not allow constructing beforeinput.
+          }
+          try {
+            input.dispatchEvent(new InputEvent('input', {
+              bubbles: true,
+              composed: true,
+              inputType: 'insertText',
+              data: text,
+            }));
+          } catch {
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }
+
+        function dispatchKeyboard(input: HTMLInputElement, key: string): void {
+          for (const type of ['keydown', 'keypress', 'keyup']) {
+            input.dispatchEvent(new KeyboardEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              composed: true,
+              key,
+              code: key === '+' ? 'Equal' : `Digit${key}`,
+              charCode: key.length === 1 ? key.charCodeAt(0) : 0,
+              keyCode: key.length === 1 ? key.charCodeAt(0) : 0,
+              which: key.length === 1 ? key.charCodeAt(0) : 0,
+            }));
+          }
+        }
+
+        async function clearInput(input: HTMLInputElement): Promise<void> {
+          input.scrollIntoView({ block: 'center', inline: 'center' });
+          clickElement(input);
+          input.focus({ preventScroll: true });
+          try {
+            input.setSelectionRange(0, input.value.length);
+          } catch {
+            // Ignore selection failures on formatted phone controls.
+          }
+          setNativeValue(input, '');
+          input.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            composed: true,
+            inputType: 'deleteContentBackward',
+            data: '',
+          }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          await sleep(120);
+        }
+
+        async function typeLikeUser(input: HTMLInputElement, value: string): Promise<void> {
+          for (const char of value) {
+            dispatchKeyboard(input, char);
+            const next = `${input.value}${char}`;
+            setNativeValue(input, next);
+            dispatchTextInput(input, char);
+            await sleep(55);
+          }
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          input.dispatchEvent(new Event('blur', { bubbles: true }));
+          input.focus({ preventScroll: true });
+          await sleep(260);
+        }
+
+        function digits(value: string): string {
+          return value.replace(/[^\d]/g, '');
+        }
+
+        function inputMatches(input: HTMLInputElement, expected: string): boolean {
+          const actualDigits = digits(input.value);
+          const expectedDigits = digits(expected);
+          return Boolean(actualDigits && expectedDigits && (
+            actualDigits.includes(expectedDigits.slice(-7)) ||
+            expectedDigits.includes(actualDigits)
+          ));
+        }
+
+        function countryButtonText(): string {
+          return Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+            .filter(isVisible)
+            .map((button) => (button.textContent || button.ariaLabel || '').replace(/\s+/g, ' ').trim())
+            .find((text) => /\+\(\d+\)|\+\d+/.test(text)) || '';
+        }
+
+        const input = findPhoneInput();
+        if (!input) {
+          return {
+            ok: false,
+            message: '主环境没有找到手机号输入框',
+            data: { fillMethod: 'main-world-phone', inputFound: false, url: location.href },
+          };
+        }
+        if (!isWritableInput(input)) {
+          const started = Date.now();
+          while (!isWritableInput(input) && Date.now() - started < 3500) {
+            await sleep(100);
+          }
+        }
+        if (!isWritableInput(input)) {
+          return {
+            ok: false,
+            message: '主环境手机号输入框仍然不可写',
+            data: {
+              fillMethod: 'main-world-phone',
+              inputFound: true,
+              inputDisabled: input.disabled,
+              inputReadOnly: input.readOnly,
+              inputConnected: input.isConnected,
+              url: location.href,
+              readyState: document.readyState,
+            },
+          };
+        }
+
+        const attempts: Array<Record<string, unknown>> = [];
+        for (const candidate of targetValues) {
+          await clearInput(input);
+          await typeLikeUser(input, candidate);
+          attempts.push({
+            candidateLength: candidate.length,
+            candidateTail: digits(candidate).slice(-4),
+            value: input.value,
+            valueLength: input.value.length,
+            valueDigits: digits(input.value),
+            countryButton: countryButtonText(),
+          });
+          if (inputMatches(input, candidate)) {
+            const button = findContinueButton();
+            if (!button) {
+              return {
+                ok: false,
+                message: '主环境没有找到手机号继续按钮',
+                data: {
+                  fillMethod: 'main-world-phone',
+                  inputFound: true,
+                  inputValueLength: input.value.length,
+                  attempts,
+                  buttonFound: false,
+                  url: location.href,
+                },
+              };
+            }
+            const started = Date.now();
+            while (!isClickableButton(button) && Date.now() - started < 3500) {
+              await sleep(100);
+            }
+            if (!isClickableButton(button)) {
+              return {
+                ok: false,
+                message: '主环境手机号继续按钮仍然不可点击',
+                data: {
+                  fillMethod: 'main-world-phone',
+                  inputFound: true,
+                  inputValueLength: input.value.length,
+                  attempts,
+                  buttonFound: true,
+                  buttonText: (button.textContent || button.ariaLabel || '').replace(/\s+/g, ' ').trim(),
+                  buttonDisabled: button.disabled,
+                  url: location.href,
+                },
+              };
+            }
+            clickElement(button);
+            return {
+              ok: true,
+              message: '主环境已逐字符填入手机号并点击继续',
+              data: {
+                fillMethod: 'main-world-phone',
+                fillMethodOk: true,
+                inputFound: true,
+                inputValueLength: input.value.length,
+                inputValue: input.value,
+                attempts,
+                buttonFound: true,
+                buttonText: (button.textContent || button.ariaLabel || '').replace(/\s+/g, ' ').trim(),
+                url: location.href,
+                readyState: document.readyState,
+              },
+            };
+          }
+        }
+
+        return {
+          ok: false,
+          message: '主环境手机号输入框没有接受逐字符输入值',
+          data: {
+            fillMethod: 'main-world-phone',
+            inputFound: true,
+            inputValueLength: input.value.length,
+            inputValue: input.value,
+            attempts,
+            url: location.href,
+            readyState: document.readyState,
+          },
+        };
+      },
+    });
+    const value = results[0]?.result;
+    return isActionResult(value)
+      ? value
+      : fail('主环境手机号脚本没有返回有效结果');
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : String(error));
+  }
+}
+
+function phoneInputCandidates(phoneNumber: string, countryIso: string): string[] {
+  const raw = phoneNumber.trim();
+  const digits = raw.replace(/[^\d]/g, '');
+  const callingCode = countryIsoToCallingCode(countryIso);
+  const full = callingCode && digits && !digits.startsWith(callingCode)
+    ? `+${callingCode}${digits}`
+    : (raw.startsWith('+') ? raw : `+${digits}`);
+  const local = callingCode && digits.startsWith(callingCode)
+    ? digits.slice(callingCode.length)
+    : digits;
+  return Array.from(new Set([full, local].filter(Boolean)));
+}
+
 function unknownPageState(): PageState {
   return {
     kind: 'unknown',
@@ -1107,6 +1682,11 @@ function isLikelyNavigationResponseClosed(message: string): boolean {
   const normalized = message.toLowerCase();
   return normalized.includes('message port closed') ||
     normalized.includes('message channel closed') ||
+    normalized.includes('message channel is closed') ||
+    normalized.includes('extension port') ||
+    normalized.includes('back/forward cache') ||
+    normalized.includes('back-forward cache') ||
+    normalized.includes('bfcache') ||
     normalized.includes('receiving end does not exist') ||
     normalized.includes('asynchronous response') ||
     normalized.includes('context invalidated');
@@ -1115,6 +1695,11 @@ function isLikelyNavigationResponseClosed(message: string): boolean {
 function isEmailInputRejected(message: string): boolean {
   return message.includes('邮箱输入框没有接受输入值') ||
     message.includes('点击继续后邮箱输入值丢失');
+}
+
+function isPhoneInputRejected(message: string): boolean {
+  return message.includes('手机号输入框没有接受输入值') ||
+    message.includes('点击继续后手机号输入值丢失');
 }
 
 function actionDataStatus(data: unknown): string {
@@ -1147,6 +1732,14 @@ function makeOtpJobId(): string {
 
 function accountEmail(accountLine: string): string {
   return accountLine.split('----', 1)[0] || 'Outlook 邮箱';
+}
+
+function isOpenAiLogInPath(pathname: string): boolean {
+  return pathname === '/log-in' || pathname.startsWith('/log-in/');
+}
+
+function isOpenAiLogInPasswordPath(pathname: string): boolean {
+  return pathname === '/log-in/password' || pathname.startsWith('/log-in/password/');
 }
 
 function delay(ms: number): Promise<void> {

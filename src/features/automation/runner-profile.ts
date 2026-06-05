@@ -4,6 +4,7 @@ import {
   checkRegisterPageReadyNow,
   fillProfileAndCreateAccount,
   skipCreateAccountPasskey,
+  waitForRegisterPageReady,
 } from '../register/service';
 import { appendAutomationLog } from './state';
 import {
@@ -12,7 +13,7 @@ import {
   parseUrl,
   shortUrl,
 } from './runner-format';
-import { isRetryableAboutYouTimeout } from './runner-errors';
+import { isRetryableAboutYouReadyFailure } from './runner-errors';
 import {
   isAboutYouUrl,
   isAfterEmailVerificationUrl,
@@ -21,6 +22,7 @@ import {
 
 const CHATGPT_HOME_LOAD_TIMEOUT_MS = 30_000;
 const PROFILE_PAGE_TIMEOUT_MS = 15_000;
+const PROFILE_FORM_READY_TIMEOUT_MS = 30_000;
 const PROFILE_SUBMIT_ATTEMPTS = 5;
 const PROFILE_SUBMIT_PROGRESS_TIMEOUT_MS = 30_000;
 
@@ -52,10 +54,10 @@ export async function fillProfileStep(context: ProfileStepContext): Promise<Acti
       };
     }
     await context.waitForAutomationTabComplete(PROFILE_PAGE_TIMEOUT_MS);
-    const ready = await checkRegisterPageReadyNow('profile', tabId);
+    const ready = await waitForRegisterPageReady('profile', PROFILE_FORM_READY_TIMEOUT_MS, tabId);
     if (!ready.ok) {
       lastResult = ready;
-      if (isRetryableAboutYouTimeout(ready) && attempt < PROFILE_SUBMIT_ATTEMPTS) {
+      if (isRetryableAboutYouReadyFailure(ready) && attempt < PROFILE_SUBMIT_ATTEMPTS) {
         await refreshAboutYouAndRetry(tabId, attempt, ready.message, context);
         continue;
       }
@@ -70,7 +72,7 @@ export async function fillProfileStep(context: ProfileStepContext): Promise<Acti
       'fill-profile',
     );
     if (!result.ok) {
-      if (isRetryableAboutYouTimeout(result) && attempt < PROFILE_SUBMIT_ATTEMPTS) {
+      if (isRetryableAboutYouReadyFailure(result) && attempt < PROFILE_SUBMIT_ATTEMPTS) {
         await refreshAboutYouAndRetry(tabId, attempt, result.message, context);
         continue;
       }
@@ -91,7 +93,7 @@ export async function fillProfileStep(context: ProfileStepContext): Promise<Acti
       `填写资料提交结果 ${attempt}/${PROFILE_SUBMIT_ATTEMPTS}：${progress.message}`,
       'fill-profile',
     );
-    if (isRetryableAboutYouTimeout(progress) && attempt < PROFILE_SUBMIT_ATTEMPTS) {
+    if (isRetryableAboutYouReadyFailure(progress) && attempt < PROFILE_SUBMIT_ATTEMPTS) {
       await refreshAboutYouAndRetry(tabId, attempt, progress.message, context);
       continue;
     }
@@ -99,7 +101,10 @@ export async function fillProfileStep(context: ProfileStepContext): Promise<Acti
       ...progress,
       ok: false,
       message: `${result.message}；${progress.message}`,
-      data: progress.data || result.data,
+      data: {
+        ...(isRecord(result.data) ? result.data : {}),
+        ...(isRecord(progress.data) ? progress.data : {}),
+      },
     };
   }
 
@@ -152,7 +157,7 @@ async function waitForAboutYouSubmitProgress(
     if (parsed && isAboutYouUrl(parsed)) {
       const ready = await checkRegisterPageReadyNow('profile', tabId);
       last = ready;
-      if (isRetryableAboutYouTimeout(ready)) {
+      if (isRetryableAboutYouReadyFailure(ready)) {
         return {
           ok: false,
           message: ready.message,

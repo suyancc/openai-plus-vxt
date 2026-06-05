@@ -1,0 +1,95 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e56]:
+    - complementary [ref=e57]:
+      - generic [ref=e58]:
+        - generic [ref=e59]:
+          - img "Fox SMS logo" [ref=e61]
+          - generic [ref=e62]: Fox SMS
+        - button "收起侧边栏" [ref=e63] [cursor=pointer]:
+          - img [ref=e64]
+      - navigation [ref=e66]:
+        - button "接码中心" [ref=e67] [cursor=pointer]:
+          - img [ref=e68]
+          - generic [ref=e70]: 接码中心
+        - button "接码记录" [ref=e72] [cursor=pointer]:
+          - img [ref=e73]
+          - generic [ref=e75]: 接码记录
+        - button "充值中心" [ref=e76] [cursor=pointer]:
+          - img [ref=e77]
+          - generic [ref=e79]: 充值中心
+        - button "充值记录" [ref=e80] [cursor=pointer]:
+          - img [ref=e81]
+          - generic [ref=e83]: 充值记录
+        - button "消费记录" [ref=e84] [cursor=pointer]:
+          - img [ref=e85]
+          - generic [ref=e87]: 消费记录
+        - button "余额流水" [ref=e88] [cursor=pointer]:
+          - img [ref=e89]
+          - generic [ref=e91]: 余额流水
+        - button "代码表" [ref=e92] [cursor=pointer]:
+          - img [ref=e93]
+          - generic [ref=e95]: 代码表
+        - button "申请项目" [ref=e96] [cursor=pointer]:
+          - img [ref=e97]
+          - generic [ref=e99]: 申请项目
+        - button "API对接" [ref=e100] [cursor=pointer]:
+          - img [ref=e101]
+          - generic [ref=e103]: API对接
+    - generic [ref=e104]:
+      - banner [ref=e105]:
+        - generic [ref=e106]:
+          - generic [ref=e107]: 用户端
+          - generic [ref=e108]: /
+          - generic [ref=e109]: 接码中心
+        - generic [ref=e110]:
+          - button "suyan" [ref=e112] [cursor=pointer]:
+            - img [ref=e113]
+            - generic [ref=e115]: suyan
+            - img [ref=e116]
+          - generic "语言" [ref=e118]:
+            - button "简体中文" [ref=e120] [cursor=pointer]:
+              - generic [ref=e121]: 简体中文
+              - img [ref=e122]
+      - main [ref=e124]:
+        - generic [ref=e126]:
+          - generic [ref=e127]:
+            - generic [ref=e128]: 国家
+            - button "国家" [ref=e130] [cursor=pointer]:
+              - generic [ref=e131]: 加拿大 +1
+              - img [ref=e132]
+          - generic [ref=e134]:
+            - generic [ref=e135]: 项目
+            - button "项目" [ref=e137] [cursor=pointer]:
+              - generic [ref=e138]: 1 | Telegram (TG) / (飞机)
+              - img [ref=e139]
+          - generic [ref=e141]:
+            - generic [ref=e142]: 数量
+            - textbox "数量" [ref=e143]:
+              - /placeholder: 取号数量，默认1
+          - generic [ref=e144]:
+            - generic [ref=e145]: 号码
+            - textbox "号码" [ref=e146]:
+              - /placeholder: 输入号段或手机号指定取号
+          - generic [ref=e147]:
+            - generic [ref=e148]: 单价
+            - textbox "单价" [ref=e149]:
+              - /placeholder: 项目价格
+              - text: ¥1.95
+          - button "获取号码" [ref=e151] [cursor=pointer]
+        - table [ref=e154]:
+          - rowgroup [ref=e155]:
+            - row "国家 项目 手机号 验证码 短信内容 剩余时间 状态 操作" [ref=e156]:
+              - columnheader "国家" [ref=e157]
+              - columnheader "项目" [ref=e158]
+              - columnheader "手机号" [ref=e159]
+              - columnheader "验证码" [ref=e160]
+              - columnheader "短信内容" [ref=e161]
+              - columnheader "剩余时间" [ref=e162]
+              - columnheader "状态" [ref=e163]
+              - columnheader "操作" [ref=e164]
+          - rowgroup [ref=e165]:
+            - row "选择国家和项目后点击取号，指定号码可直接在顶部“号码”输入框填写。" [ref=e166]:
+              - cell "选择国家和项目后点击取号，指定号码可直接在顶部“号码”输入框填写。" [ref=e167]
+  - alert [ref=e168]:
+    - img [ref=e170]
+    - paragraph [ref=e172]: 登录成功

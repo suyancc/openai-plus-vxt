@@ -3,7 +3,7 @@ import type { ActionResult } from '../../app/types';
 export type { ActionResult } from '../../app/types';
 
 export interface PageState {
-  kind: 'login' | 'password' | 'email-verification' | 'about-you' | 'unknown';
+  kind: 'login' | 'password' | 'email-verification' | 'phone-verification' | 'about-you' | 'unknown';
   label: string;
   canFillEmail: boolean;
   canFillPassword?: boolean;

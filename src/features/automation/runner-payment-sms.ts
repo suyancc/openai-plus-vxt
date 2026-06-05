@@ -9,7 +9,12 @@ import {
 } from '../address-autofill/service';
 import { fetchSmsRelayCode } from '../sms/poller';
 import type { SmsRelayTarget } from '../sms/types';
+import {
+  fetchFoxSmsCode,
+  isFoxSmsTarget,
+} from './fox-sms';
 import { appendAutomationLog } from './state';
+import type { AutomationSmsTarget } from './types';
 import {
   currentSmsTarget,
   markSmsCodeReceived,
@@ -62,11 +67,6 @@ export async function waitPaymentSmsStep(context: PaymentSmsContext): Promise<Ac
     return { ok: false, message: '没有当前接码号码，请先执行“选择接码号码”' };
   }
 
-  const target: SmsRelayTarget = {
-    id: sms.id,
-    phone: sms.phone,
-    url: sms.url,
-  };
   const seenCodes = await loadSeenSmsCodes(sms.phone);
   const deadline = Date.now() + SMS_WAIT_TIMEOUT_MS;
   while (Date.now() <= deadline) {
@@ -102,7 +102,7 @@ export async function waitPaymentSmsStep(context: PaymentSmsContext): Promise<Ac
       await delay(SMS_WAIT_INTERVAL_MS);
       continue;
     }
-    const result = await fetchSmsRelayCode(target);
+    const result = await fetchAutomationSmsCode(sms);
     if (result.kind === 'code') {
       const codeKey = smsCodeKey(sms.phone, result.code);
       if (seenCodes.has(codeKey)) {
@@ -146,6 +146,34 @@ export async function waitPaymentSmsStep(context: PaymentSmsContext): Promise<Ac
     await delay(SMS_WAIT_INTERVAL_MS);
   }
   return { ok: false, message: '等待手机验证码超时' };
+}
+
+async function fetchAutomationSmsCode(sms: AutomationSmsTarget): Promise<
+  | { kind: 'code'; code: string; message: string }
+  | { kind: 'empty'; message: string }
+  | { kind: 'error'; message: string }
+> {
+  if (isFoxSmsTarget(sms)) {
+    const result = await fetchFoxSmsCode(sms);
+    if (result.kind === 'code') {
+      return {
+        kind: 'code',
+        code: result.code,
+        message: result.message,
+      };
+    }
+    return {
+      kind: result.kind,
+      message: result.message,
+    };
+  }
+
+  const target: SmsRelayTarget = {
+    id: sms.id,
+    phone: sms.phone,
+    url: sms.url,
+  };
+  return fetchSmsRelayCode(target);
 }
 
 async function waitForPaymentCompletionAfterSms(

@@ -1,0 +1,84 @@
+{
+  "exported_at": "2026-06-02T15:59:49.051Z",
+  "proxies": [],
+  "accounts": [
+    {
+      "name": "TrippBoraski4278@outlook.com",
+      "platform": "openai",
+      "type": "oauth",
+      "concurrency": 10,
+      "priority": 1,
+      "credentials": {
+        "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjE5MzQ0ZTY1LWJiYzktNDRkMS1hOWQwLWY5NTdiMDc5YmQwZSIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS92MSJdLCJjbGllbnRfaWQiOiJhcHBfWDh6WTZ2VzJwUTl0UjNkRTduSzFqTDVnSCIsImV4cCI6MTc4MTI3OTg4NiwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImNoYXRncHRfYWNjb3VudF9pZCI6IjRmMGRmYjEyLTA1ODAtNDA4OS04N2FkLWNkOTZiZDM0YWY0ZSIsImNoYXRncHRfYWNjb3VudF91c2VyX2lkIjoidXNlci1sZ1lUajlobjluWHNZeDZ1alFhc3dSR1VfXzRmMGRmYjEyLTA1ODAtNDA4OS04N2FkLWNkOTZiZDM0YWY0ZSIsImNoYXRncHRfY29tcHV0ZV9yZXNpZGVuY3kiOiJub19jb25zdHJhaW50IiwiY2hhdGdwdF9wbGFuX3R5cGUiOiJmcmVlIiwiY2hhdGdwdF91c2VyX2lkIjoidXNlci1sZ1lUajlobjluWHNZeDZ1alFhc3dSR1UiLCJpc19zaWdudXAiOnRydWUsInVzZXJfaWQiOiJ1c2VyLWxnWVRqOWhuOW5Yc1l4NnVqUWFzd1JHVSJ9LCJodHRwczovL2FwaS5vcGVuYWkuY29tL3Byb2ZpbGUiOnsiZW1haWwiOiJUcmlwcEJvcmFza2k0Mjc4QG91dGxvb2suY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWV9LCJpYXQiOjE3ODA0MTU4ODUsImlzcyI6Imh0dHBzOi8vYXV0aC5vcGVuYWkuY29tIiwianRpIjoiMmM2ZWRmNWUtMjcxYS00YWY0LWJjOGItNDg4MTlmZGEyMGEzIiwibmJmIjoxNzgwNDE1ODg1LCJwd2RfYXV0aF90aW1lIjoxNzgwNDE1ODgyNjcyLCJzY3AiOlsib3BlbmlkIiwiZW1haWwiLCJwcm9maWxlIiwib2ZmbGluZV9hY2Nlc3MiLCJtb2RlbC5yZXF1ZXN0IiwibW9kZWwucmVhZCIsIm9yZ2FuaXphdGlvbi5yZWFkIiwib3JnYW5pemF0aW9uLndyaXRlIl0sInNlc3Npb25faWQiOiJhdXRoc2Vzc19wSUpkeGRhZjg2azZJUjhRVld4b3JQRWUiLCJzbCI6dHJ1ZSwic3ViIjoiYXV0aDB8bHlXckkzaFVheFlselZsM0M2S1MwSkk1In0.Uefhy7cTlyLNZZZrlthO7m5EtXRzwNKYnRwoQVVLAzWSm2zWWYXT-xkuTQbrb7SgGrAgUcEhSUcMTv2zcnZ_H5iRUg4rB4GZYBaXWmNb9DYNjHSyqe20lmV0VMPxTwr9UAa9j48rKIlS5UbmCCbUKpEioVRWbb0DyriJmBNNEcWhF2dV4xWfZ1fLADWGgaRFpZn4H9QqrNaUxHKRT9Cn9fDUN6StF5JdKW2oZGx5Nvs7t0r5GPIT60o4l37j87g5qzC4iJ7lkyu6x2yOUPB6oybWlHNJSZWR1zqh-H4OWkT-vPovbfTex6otsXLl-AAGnhDDK5mbt8RAhWOz6Y3-QuhSuR6POtLp5plQbbNDxf8LGuEvdnUqmmp0o2bwAvUU_8e8RRuL1UyxElk6Ymnav9Dt01aZiSLbyCfAcCzY04LKd8MsGgiL0PD_xY1YhZGEZzyfjqCz3MKgDy-WTULaACiEW4G0rB4h-j2GBMdwPi_g4fLFEH4J3jV_FccOgQa-IwZ_cukuD9WDl6_kvED8BWDL1rZTyrhLIcyFu9KNb4dkrIeChzB79Dgpsz5SAZINJAChUkkzulVKfi6s6-rAa60mqJy3Z1PkKJs2uSlUIQk5ahij88CT9jLW9zMXcEGLcvAlfCrY66WSHh2zr7gnHidCJVmi8YsQkNonHdOCB3k",
+        "chatgpt_account_id": "4f0dfb12-0580-4089-87ad-cd96bd34af4e",
+        "chatgpt_user_id": "user-lgYTj9hn9nXsYx6ujQaswRGU",
+        "email": "TrippBoraski4278@outlook.com",
+        "expires_at": "2026-06-12T15:58:06.000Z",
+        "expires_in": 863896,
+        "plan_type": "plus",
+        "refresh_token": "",
+        "id_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIiwiY3BhX3N5bnRoZXRpYyI6dHJ1ZX0.eyJpYXQiOjE3ODA0MTU5ODksImV4cCI6MTc4MTI3OTg4NiwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImNoYXRncHRfYWNjb3VudF9pZCI6IjRmMGRmYjEyLTA1ODAtNDA4OS04N2FkLWNkOTZiZDM0YWY0ZSIsImNoYXRncHRfcGxhbl90eXBlIjoicGx1cyIsImNoYXRncHRfdXNlcl9pZCI6InVzZXItbGdZVGo5aG45blhzWXg2dWpRYXN3UkdVIiwidXNlcl9pZCI6InVzZXItbGdZVGo5aG45blhzWXg2dWpRYXN3UkdVIn0sImVtYWlsIjoiVHJpcHBCb3Jhc2tpNDI3OEBvdXRsb29rLmNvbSJ9.synthetic"
+      },
+      "extra": {
+        "email": "TrippBoraski4278@outlook.com",
+        "email_key": "trippboraski4278_outlook_com",
+        "name": "TrippBoraski4278@outlook.com",
+        "auth_provider": "oauth",
+        "source": "chatgpt_web_session",
+        "last_refresh": "2026-06-02T15:59:49.050Z"
+      }
+    },
+    {
+      "name": "FlorieJohnosn9035@outlook.com",
+      "platform": "openai",
+      "type": "oauth",
+      "concurrency": 10,
+      "priority": 1,
+      "credentials": {
+        "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjE5MzQ0ZTY1LWJiYzktNDRkMS1hOWQwLWY5NTdiMDc5YmQwZSIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS92MSJdLCJjbGllbnRfaWQiOiJhcHBfWDh6WTZ2VzJwUTl0UjNkRTduSzFqTDVnSCIsImV4cCI6MTc4MTI4MDAxNCwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImNoYXRncHRfYWNjb3VudF9pZCI6IjA0MTA4YjUxLTk1ODctNDQ2ZC04ZDU1LWU0YzkzM2E1ODcxMiIsImNoYXRncHRfYWNjb3VudF91c2VyX2lkIjoidXNlci16NmoyQ0h1eDF6SWxBS2dZSXE1NU42S2tfXzA0MTA4YjUxLTk1ODctNDQ2ZC04ZDU1LWU0YzkzM2E1ODcxMiIsImNoYXRncHRfY29tcHV0ZV9yZXNpZGVuY3kiOiJub19jb25zdHJhaW50IiwiY2hhdGdwdF9wbGFuX3R5cGUiOiJmcmVlIiwiY2hhdGdwdF91c2VyX2lkIjoidXNlci16NmoyQ0h1eDF6SWxBS2dZSXE1NU42S2siLCJpc19zaWdudXAiOnRydWUsInVzZXJfaWQiOiJ1c2VyLXo2ajJDSHV4MXpJbEFLZ1lJcTU1TjZLayJ9LCJodHRwczovL2FwaS5vcGVuYWkuY29tL3Byb2ZpbGUiOnsiZW1haWwiOiJGbG9yaWVKb2hub3NuOTAzNUBvdXRsb29rLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlfSwiaWF0IjoxNzgwNDE2MDE0LCJpc3MiOiJodHRwczovL2F1dGgub3BlbmFpLmNvbSIsImp0aSI6ImY0NWJlZTEwLTA5ODktNDNmMS04MzJlLWI4YmMxZjUzMWRjYiIsIm5iZiI6MTc4MDQxNjAxNCwicHdkX2F1dGhfdGltZSI6MTc4MDQxNjAxMTc1Mywic2NwIjpbIm9wZW5pZCIsImVtYWlsIiwicHJvZmlsZSIsIm9mZmxpbmVfYWNjZXNzIiwibW9kZWwucmVxdWVzdCIsIm1vZGVsLnJlYWQiLCJvcmdhbml6YXRpb24ucmVhZCIsIm9yZ2FuaXphdGlvbi53cml0ZSJdLCJzZXNzaW9uX2lkIjoiYXV0aHNlc3NfcnVyRTluS3lzRldiTUJvemdpdG9zdktJIiwic2wiOnRydWUsInN1YiI6ImF1dGgwfEZxMVF5M09kR1JlOGdSY212MVlSb0JUWSJ9.wvzyn_SCEE59mgWaWhJRI44owXdzBotGv3bU-P_z61WwyRMj9AI-pNYWXGFvQtDaW6wP39GO2OSySGsSajmgq_-S74garpfTx6a5vsawj6lMr3vhNL7N1b_VYgpIi4RzZPDY-s32W-bqMvHoXUi5LNOu_AH95pk_jKJ-jooAMttC94NkD4Iet7Du3XldxobHyPL3pfldLx8rWBt8ybvRIE-yzOAMTC82M6Ar7kqLRVnGVzssuzdH7w84xBH80NIVSAItCHb2vtolbHVEHmnkzo4pm7qHD70_UC4vvjYS819zdYCBjhEUYxIyqi2jxXktP4hbMSCL3RTN6WSK3oJi5DMDRfdgMX4MlPizEuPNoX-OG3yh69oiiua3lURhGz2SIrY43KVoC6w_xJl2pR4J9fdfVsVb1YERTbojIvCjYKuM9NgC1g6XhGy40V4vSqlaFnZ47toRJR10st9nxjC1fv9lZf_HmupYFCw48NzqTkLBvCFeVWfAM2YQC5-DrNdPOQn32U1wwdck0-lBrPvkSzIWYIbjm9Q-bpOOO7frWESEkj9aXWvZYFrCkAOfYEHR8dlnLfHBUCy-SZLbg932UQLkH6NPYDNyn3Q-MYMgkRhOgPSLlIxV4SAAd82JueexDi9RBF5JPIkDALZMprRKdOIyrv6v3QuRobrjneXMnWw",
+        "chatgpt_account_id": "04108b51-9587-446d-8d55-e4c933a58712",
+        "chatgpt_user_id": "user-z6j2CHux1zIlAKgYIq55N6Kk",
+        "email": "FlorieJohnosn9035@outlook.com",
+        "expires_at": "2026-06-12T16:00:14.000Z",
+        "expires_in": 863901,
+        "plan_type": "plus",
+        "refresh_token": "",
+        "id_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIiwiY3BhX3N5bnRoZXRpYyI6dHJ1ZX0.eyJpYXQiOjE3ODA0MTYxMTIsImV4cCI6MTc4MTI4MDAxNCwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImNoYXRncHRfYWNjb3VudF9pZCI6IjA0MTA4YjUxLTk1ODctNDQ2ZC04ZDU1LWU0YzkzM2E1ODcxMiIsImNoYXRncHRfcGxhbl90eXBlIjoicGx1cyIsImNoYXRncHRfdXNlcl9pZCI6InVzZXItejZqMkNIdXgxeklsQUtnWUlxNTVONktrIiwidXNlcl9pZCI6InVzZXItejZqMkNIdXgxeklsQUtnWUlxNTVONktrIn0sImVtYWlsIjoiRmxvcmllSm9obm9zbjkwMzVAb3V0bG9vay5jb20ifQ.synthetic"
+      },
+      "extra": {
+        "email": "FlorieJohnosn9035@outlook.com",
+        "email_key": "floriejohnosn9035_outlook_com",
+        "name": "FlorieJohnosn9035@outlook.com",
+        "auth_provider": "oauth",
+        "source": "chatgpt_web_session",
+        "last_refresh": "2026-06-02T16:01:52.122Z"
+      }
+    },
+    {
+      "name": "ZebulonGinzel6253@outlook.com",
+      "platform": "openai",
+      "type": "oauth",
+      "concurrency": 10,
+      "priority": 1,
+      "credentials": {
+        "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjE5MzQ0ZTY1LWJiYzktNDRkMS1hOWQwLWY5NTdiMDc5YmQwZSIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS92MSJdLCJjbGllbnRfaWQiOiJhcHBfWDh6WTZ2VzJwUTl0UjNkRTduSzFqTDVnSCIsImV4cCI6MTc4MTI4MDEzOSwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImNoYXRncHRfYWNjb3VudF9pZCI6IjM0MzI4M2M1LTVmYjYtNDk5Mi05MTdmLWUzZjQ5N2ZlYjFmZiIsImNoYXRncHRfYWNjb3VudF91c2VyX2lkIjoidXNlci1LOEQ4NHRKaGRySllrQ3k1dllRSklTeTJfXzM0MzI4M2M1LTVmYjYtNDk5Mi05MTdmLWUzZjQ5N2ZlYjFmZiIsImNoYXRncHRfY29tcHV0ZV9yZXNpZGVuY3kiOiJub19jb25zdHJhaW50IiwiY2hhdGdwdF9wbGFuX3R5cGUiOiJmcmVlIiwiY2hhdGdwdF91c2VyX2lkIjoidXNlci1LOEQ4NHRKaGRySllrQ3k1dllRSklTeTIiLCJpc19zaWdudXAiOnRydWUsInVzZXJfaWQiOiJ1c2VyLUs4RDg0dEpoZHJKWWtDeTV2WVFKSVN5MiJ9LCJodHRwczovL2FwaS5vcGVuYWkuY29tL3Byb2ZpbGUiOnsiZW1haWwiOiJaZWJ1bG9uR2luemVsNjI1M0BvdXRsb29rLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlfSwiaWF0IjoxNzgwNDE2MTM4LCJpc3MiOiJodHRwczovL2F1dGgub3BlbmFpLmNvbSIsImp0aSI6Ijg0ZDdmMmUxLWM1YjQtNGExNC04M2ZkLTVlOGY0NjZkZjAxZiIsIm5iZiI6MTc4MDQxNjEzOCwicHdkX2F1dGhfdGltZSI6MTc4MDQxNjEzNjA3Miwic2NwIjpbIm9wZW5pZCIsImVtYWlsIiwicHJvZmlsZSIsIm9mZmxpbmVfYWNjZXNzIiwibW9kZWwucmVxdWVzdCIsIm1vZGVsLnJlYWQiLCJvcmdhbml6YXRpb24ucmVhZCIsIm9yZ2FuaXphdGlvbi53cml0ZSJdLCJzZXNzaW9uX2lkIjoiYXV0aHNlc3NfaVVRWlFaVTBNOHZwN0NRdE9RTU95bHZGIiwic2wiOnRydWUsInN1YiI6ImF1dGgwfFA4T2tLMFlRZUMxMjVBMGpSc2FkT0ZZVCJ9.efXXssuJ_ezgTTPNF4a4eBZJTFQa2OdyM58wgCIHDktXHQXsZ-It0QzG91q6uRPu02YbbjSKVQZ8MPt2bMGheGouu1yC_951XwJn3UOds0Bh515dY_HDv-zc6zF1iYpRfBhFCSlVKv6IC63Wi9MXwlZuxw0a_Z4Z4VFHcgGWjkI8pln4m5UbdErf_5z-6RoA6CQdPo24ggky03HuSP9A3YidASwPCz6naDerPM3bZvYiDnWeQjG-B4-C2MG-ovDEaeZhnKpB3gna3l2Uzeu-K428ujnuK09EXVCfeGqGH63kfNRjKzpYIyfOKUQAkEMPs_PHLCECGyz-f-uFTnOzri1PEDbP3HCkW7KPTU4lMTAHlcGR1zMISRWXkIXFsf2-e6LD2w2wZRZG364Ea5OLY4V2nuWYMfO6simx2iL6qOHQcpa5zKudmJe4St9Pl5ZCzxoJIYwgguR-sLZrDltfBTb3avvmb1869vUIc_klrtzA1Wep_oPAP9usJuV6EgVoe4m2mQsG9QY3dYNB2gPEzrO1Xx6dLAc4KzvNICKY6SLX3T442z5u8BmptrLLjLBl2nYClG7_AQJenC1gjO0JtlU-NnUZaFWAc3iYZG8QST1yA4OELI4zDON8Zcf8wVWZhVGzt7Gju9wkbtXnnSszl28BFaTwrUvTNuBv9pryZBg",
+        "chatgpt_account_id": "343283c5-5fb6-4992-917f-e3f497feb1ff",
+        "chatgpt_user_id": "user-K8D84tJhdrJYkCy5vYQJISy2",
+        "email": "ZebulonGinzel6253@outlook.com",
+        "expires_at": "2026-06-12T16:02:19.000Z",
+        "expires_in": 863916,
+        "plan_type": "plus",
+        "refresh_token": "",
+        "id_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIiwiY3BhX3N5bnRoZXRpYyI6dHJ1ZX0.eyJpYXQiOjE3ODA0MTYyMjIsImV4cCI6MTc4MTI4MDEzOSwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImNoYXRncHRfYWNjb3VudF9pZCI6IjM0MzI4M2M1LTVmYjYtNDk5Mi05MTdmLWUzZjQ5N2ZlYjFmZiIsImNoYXRncHRfcGxhbl90eXBlIjoicGx1cyIsImNoYXRncHRfdXNlcl9pZCI6InVzZXItSzhEODR0SmhkckpZa0N5NXZZUUpJU3kyIiwidXNlcl9pZCI6InVzZXItSzhEODR0SmhkckpZa0N5NXZZUUpJU3kyIn0sImVtYWlsIjoiWmVidWxvbkdpbnplbDYyNTNAb3V0bG9vay5jb20ifQ.synthetic"
+      },
+      "extra": {
+        "email": "ZebulonGinzel6253@outlook.com",
+        "email_key": "zebulonginzel6253_outlook_com",
+        "name": "ZebulonGinzel6253@outlook.com",
+        "auth_provider": "oauth",
+        "source": "chatgpt_web_session",
+        "last_refresh": "2026-06-02T16:03:42.030Z"
+      }
+    }
+  ]
+}

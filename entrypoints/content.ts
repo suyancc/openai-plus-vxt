@@ -1,10 +1,21 @@
 import { canUseExtensionApi } from '../src/app/extension-context';
-import { PAGE_ACTION, isFillCurrentPaymentAddressAction, isOAuthFillPhoneAction, isOAuthFillPhoneCodeAction, isOpenAiSubmitCheckoutAction } from '../src/app/page-actions';
+import {
+  PAGE_ACTION,
+  isFillCurrentPaymentAddressAction,
+  isOAuthFillPhoneAction,
+  isOAuthFillPhoneCodeAction,
+  isOpenAiSubmitCheckoutAction,
+  isRegisterFillPhoneAction,
+} from '../src/app/page-actions';
 import { initPayOpenAiAddressAutofill } from '../src/features/address-autofill/pay-openai-autofill';
 import { initPaypalAutofill } from '../src/features/address-autofill/paypal-autofill';
 import { createRegisterController } from '../src/features/register/controller';
 import { getEmailDebugState } from '../src/features/register/chatgpt-auth-page';
 import { checkRegisterPageReady, type RegisterReadyKind } from '../src/features/register/page-ready';
+import {
+  fillRegisterPhoneAndContinue,
+  fillRegisterPhoneOtpAndContinue,
+} from '../src/features/register/chatgpt-phone-register-page';
 import type { ActionResult } from '../src/app/types';
 import type { AddressProfile } from '../src/features/address-autofill/types';
 import {
@@ -96,8 +107,17 @@ async function handleContentActionMessage(message: Record<string, unknown>): Pro
   if (message.type === PAGE_ACTION.registerFillEmail) {
     return createRegisterController().fillEmailFromInput();
   }
+  if (isRegisterFillPhoneAction(message)) {
+    return fillRegisterPhoneAndContinue({
+      phoneNumber: message.phoneNumber,
+      countryIso: message.countryIso,
+    });
+  }
   if (message.type === PAGE_ACTION.registerFillOtp) {
     return createRegisterController().fillOtp(String(message.code || ''));
+  }
+  if (message.type === PAGE_ACTION.registerFillPhoneOtp) {
+    return fillRegisterPhoneOtpAndContinue(String(message.code || ''));
   }
   if (message.type === PAGE_ACTION.registerFillProfile) {
     return createRegisterController().fillProfileAndCreate();
@@ -157,13 +177,18 @@ async function handleContentActionMessage(message: Record<string, unknown>): Pro
 }
 
 async function fillCurrentPaymentAddress(address: AddressProfile): Promise<ActionResult> {
-  if (location.hostname === 'pay.openai.com') {
+  if (isOpenAiCheckoutPage()) {
     return fillPayOpenAiAddressNow(address);
   }
   if (location.hostname.endsWith('paypal.com')) {
     return fillPaypalAddressNow(address, true, false);
   }
   return { ok: false, message: '当前页面不是支持填写的支付页' };
+}
+
+function isOpenAiCheckoutPage(): boolean {
+  return location.hostname === 'pay.openai.com' ||
+    (location.hostname === 'chatgpt.com' && location.pathname.startsWith('/checkout/openai_llc/cs_'));
 }
 
 function checkPaymentReady(kind: string): ActionResult {

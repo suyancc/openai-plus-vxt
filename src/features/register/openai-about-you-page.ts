@@ -74,9 +74,7 @@ export async function fillAboutYouAndCreate(): Promise<ActionResult> {
   const name = randomName();
   const age = randomInt(25, 55);
 
-  setNativeValue(nameInput, name);
-  nameInput.dispatchEvent(new Event('input', { bubbles: true }));
-  nameInput.dispatchEvent(new Event('change', { bubbles: true }));
+  fillTextInput(nameInput, name);
 
   let filledLabel = `${name} / ${age}`;
   if (form.mode === 'birthday') {
@@ -91,11 +89,10 @@ export async function fillAboutYouAndCreate(): Promise<ActionResult> {
     if (!ageInput) {
       return fail('没有找到年龄输入框');
     }
-    setNativeValue(ageInput, String(age));
-    ageInput.dispatchEvent(new Event('input', { bubbles: true }));
-    ageInput.dispatchEvent(new Event('change', { bubbles: true }));
+    fillTextInput(ageInput, String(age));
   }
 
+  await waitForUiTick();
   await waitForUiTick();
   const checkboxResult = await checkVisibleCheckboxes();
   if (!checkboxResult.ok) {
@@ -105,23 +102,28 @@ export async function fillAboutYouAndCreate(): Promise<ActionResult> {
     await waitForUiTick();
   }
 
-  const button = form.button || findCreateButton();
+  const button = await waitForCurrentCreateButton(8_000);
   if (!button) {
-    return fail('没有找到完成账户创建按钮');
+    return fail('没有找到完成账户创建按钮', buildAboutYouDebugData());
   }
 
   if (!isClickableButton(button)) {
-    await waitForClickable(button, 3500);
+    await waitForClickable(8_000);
   }
 
-  if (!isClickableButton(button)) {
-    return fail('完成账户创建按钮仍然不可点击');
+  const currentButton = findCreateButton();
+  if (!currentButton || !isClickableButton(currentButton)) {
+    return fail('完成账户创建按钮仍然不可点击', buildAboutYouDebugData());
   }
 
-  clickElement(button);
+  const submitResult = submitCreateButton(currentButton);
+  await waitForUiTick();
   return ok(checkboxResult.checked > 0
     ? `已填写 ${filledLabel}，已勾选 ${checkboxResult.checked} 个选项并点击创建`
-    : `已填写 ${filledLabel} 并点击创建`);
+    : `已填写 ${filledLabel} 并点击创建`, {
+      ...(buildAboutYouDebugData()),
+      submitResult,
+    });
 }
 
 async function waitForAboutYouFormReady(timeoutMs: number): Promise<AboutYouFormReady> {
@@ -241,9 +243,7 @@ function fillBirthdayField(form: AboutYouFormReady, birthday: BirthdayValue): Ac
   }
 
   if (form.birthdayInput) {
-    setNativeValue(form.birthdayInput, birthday.value);
-    form.birthdayInput.dispatchEvent(new Event('input', { bubbles: true }));
-    form.birthdayInput.dispatchEvent(new Event('change', { bubbles: true }));
+    fillTextInput(form.birthdayInput, birthday.value);
     clearInvalidState(form.birthdayInput);
   }
 
@@ -318,32 +318,84 @@ function looksLikeAgeInput(input: HTMLInputElement): boolean {
 }
 
 function findCreateButton(): HTMLButtonElement | null {
-  const submit = document.querySelector<HTMLButtonElement>('button[type="submit"]');
-  if (submit && isVisible(submit)) {
-    return submit;
+  const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).filter(isVisible);
+  const exact = buttons.find((button) => {
+    const actionName = (button.getAttribute('data-dd-action-name') || '').toLowerCase();
+    const text = compactText(button.textContent || button.ariaLabel || '').toLowerCase();
+    return button.type === 'submit' &&
+      (actionName === 'continue' || text.includes('完成帐户创建') || text.includes('完成账户创建'));
+  });
+  if (exact) {
+    return exact;
   }
 
-  return Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((button) => {
+  return buttons.find((button) => {
     if (!isVisible(button)) {
       return false;
     }
-    const text = (button.textContent || '').trim().toLowerCase();
+    const text = [
+      button.textContent || '',
+      button.ariaLabel || '',
+      button.getAttribute('data-dd-action-name') || '',
+    ].join(' ').trim().toLowerCase();
     return (
       text.includes('完成帐户创建') ||
       text.includes('完成账户创建') ||
       text.includes('create account') ||
-      text.includes('continue')
+      text.includes('continue') ||
+      text.includes('继续') ||
+      text.includes('続ける') ||
+      text.includes('続行') ||
+      text.includes('次へ')
     );
-  }) ?? null;
+  }) ?? buttons.find((button) => button.type === 'submit') ?? null;
+}
+
+function fillTextInput(input: HTMLInputElement, value: string): void {
+  input.scrollIntoView({ block: 'center', inline: 'nearest' });
+  input.focus({ preventScroll: true });
+  try {
+    input.setSelectionRange(0, input.value.length);
+  } catch {
+    // Some numeric and hidden inputs do not support text selection.
+  }
+  setNativeValue(input, value);
+  dispatchTextInputEvents(input, value);
 }
 
 function setNativeValue(input: HTMLInputElement, value: string): void {
-  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
-  if (descriptor?.set) {
-    descriptor.set.call(input, value);
+  const ownDescriptor = Object.getOwnPropertyDescriptor(input, 'value');
+  const prototypeDescriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value') ||
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  const setter = prototypeDescriptor?.set || ownDescriptor?.set;
+  if (setter) {
+    setter.call(input, value);
   } else {
     input.value = value;
   }
+}
+
+function dispatchTextInputEvents(input: HTMLInputElement, value: string): void {
+  try {
+    input.dispatchEvent(new InputEvent('beforeinput', {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      data: value,
+      inputType: 'insertText',
+    }));
+    input.dispatchEvent(new InputEvent('input', {
+      bubbles: true,
+      cancelable: false,
+      composed: true,
+      data: value,
+      inputType: 'insertText',
+    }));
+  } catch {
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  input.dispatchEvent(new Event('blur', { bubbles: true }));
 }
 
 function setEditableSegmentValue(element: HTMLElement, value: string): void {
@@ -472,6 +524,7 @@ function isVisible(element: HTMLElement): boolean {
 
 function clickElement(element: HTMLElement): void {
   element.scrollIntoView({ block: 'center', inline: 'center' });
+  element.focus({ preventScroll: true });
   for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
     const EventCtor = type.startsWith('pointer') ? PointerEvent : MouseEvent;
     element.dispatchEvent(new EventCtor(type, {
@@ -485,6 +538,57 @@ function clickElement(element: HTMLElement): void {
     }));
   }
   element.click();
+}
+
+function submitCreateButton(button: HTMLButtonElement): Record<string, unknown> {
+  const form = button.form || button.closest<HTMLFormElement>('form');
+  const before = buttonDebug(button, form);
+  clickElement(button);
+  let requestedSubmit = false;
+  let directSubmit = false;
+
+  if (form) {
+    try {
+      form.requestSubmit(button);
+      requestedSubmit = true;
+    } catch {
+      try {
+        form.requestSubmit();
+        requestedSubmit = true;
+      } catch {
+        try {
+          form.submit();
+          directSubmit = true;
+        } catch {
+          // Keep the click result; diagnostics below show that form submit fallback failed.
+        }
+      }
+    }
+  }
+
+  return {
+    before,
+    after: buttonDebug(button, form),
+    requestedSubmit,
+    directSubmit,
+  };
+}
+
+function buttonDebug(button: HTMLButtonElement, form: HTMLFormElement | null): Record<string, unknown> {
+  return {
+    text: compactText(button.textContent || button.ariaLabel || ''),
+    type: button.type,
+    disabled: button.disabled,
+    ariaDisabled: button.getAttribute('aria-disabled') || '',
+    dataDisabled: button.dataset.disabled || '',
+    connected: button.isConnected,
+    visible: isVisible(button),
+    actionName: button.getAttribute('data-dd-action-name') || '',
+    formFound: Boolean(form),
+    formAction: form?.getAttribute('action') || '',
+    formMethod: form?.getAttribute('method') || '',
+    formNoValidate: form?.noValidate ?? false,
+  };
 }
 
 function waitForChecked(checkbox: HTMLInputElement, timeoutMs: number): Promise<void> {
@@ -512,12 +616,27 @@ function waitForUiTick(): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, 80));
 }
 
-function waitForClickable(button: HTMLButtonElement, timeoutMs: number): Promise<void> {
+function waitForCurrentCreateButton(timeoutMs: number): Promise<HTMLButtonElement | null> {
   const started = Date.now();
-
   return new Promise((resolve) => {
     const check = () => {
-      if (isClickableButton(button) || Date.now() - started >= timeoutMs) {
+      const button = findCreateButton();
+      if ((button && isClickableButton(button)) || Date.now() - started >= timeoutMs) {
+        resolve(button);
+        return;
+      }
+      window.setTimeout(check, 100);
+    };
+    check();
+  });
+}
+
+function waitForClickable(timeoutMs: number): Promise<void> {
+  const started = Date.now();
+  return new Promise((resolve) => {
+    const check = () => {
+      const button = findCreateButton();
+      if ((button && isClickableButton(button)) || Date.now() - started >= timeoutMs) {
         resolve();
         return;
       }
@@ -529,9 +648,46 @@ function waitForClickable(button: HTMLButtonElement, timeoutMs: number): Promise
 
 function isClickableButton(button: HTMLButtonElement): boolean {
   return isVisible(button) &&
+    button.isConnected &&
     !button.disabled &&
     button.getAttribute('aria-disabled') !== 'true' &&
     button.dataset.disabled !== 'true';
+}
+
+function buildAboutYouDebugData(): Record<string, unknown> {
+  const button = findCreateButton();
+  return {
+    url: location.href,
+    readyState: document.readyState,
+    inputs: textInputs().slice(0, 12).map((input) => ({
+      type: input.type,
+      name: input.name,
+      id: input.id,
+      valueLength: input.value.length,
+      visible: isVisible(input),
+      disabled: input.disabled,
+      readOnly: input.readOnly,
+      ariaInvalid: input.getAttribute('aria-invalid') || '',
+    })),
+    button: button ? {
+      text: compactText(button.textContent || button.ariaLabel || ''),
+      type: button.type,
+      disabled: button.disabled,
+      ariaDisabled: button.getAttribute('aria-disabled') || '',
+      dataDisabled: button.dataset.disabled || '',
+      connected: button.isConnected,
+      visible: isVisible(button),
+    } : null,
+    buttonTexts: Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+      .filter(isVisible)
+      .map((item) => compactText(item.textContent || item.ariaLabel || ''))
+      .filter(Boolean)
+      .slice(0, 12),
+  };
+}
+
+function compactText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
 }
 
 function randomName(): string {
@@ -570,10 +726,10 @@ function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function ok(message: string): ActionResult {
-  return { ok: true, message };
+function ok(message: string, data?: unknown): ActionResult {
+  return data === undefined ? { ok: true, message } : { ok: true, message, data };
 }
 
-function fail(message: string): ActionResult {
-  return { ok: false, message };
+function fail(message: string, data?: unknown): ActionResult {
+  return data === undefined ? { ok: false, message } : { ok: false, message, data };
 }

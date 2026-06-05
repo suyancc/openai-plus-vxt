@@ -71,7 +71,7 @@ export function selectSmsTarget(state: AutomationState): AutomationSmsTarget | n
 }
 
 export function availableSmsTargets(state: AutomationState): AutomationSmsTarget[] {
-  return state.smsTargets.filter((target) => !target.disabled);
+  return state.smsTargets.filter((target) => target.source === 'api' && !target.disabled);
 }
 
 export function hasNextBatchEmail(state: AutomationState): boolean {

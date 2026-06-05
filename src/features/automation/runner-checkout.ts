@@ -45,12 +45,15 @@ export async function readSessionStep(context: Pick<CheckoutStepContext, 'waitFo
     const response = await readCurrentChatGptSession();
     lastResponse = response;
     if (response.ok && response.session?.accessToken) {
-      await updateAutomationRun({ sessionEmail: response.session.email });
+      const state = await loadAutomationState();
+      const sessionEmail = response.session.email ||
+        (state.settings.registrationMode === 'phone' ? state.run.sessionEmail : '');
+      await updateAutomationRun({ sessionEmail });
       return {
         ok: true,
         message: attempt > 1
-          ? `已读取 ChatGPT session：${response.session.email || '未知邮箱'}（第 ${attempt} 次尝试成功）`
-          : `已读取 ChatGPT session：${response.session.email || '未知邮箱'}`,
+          ? `已读取 ChatGPT session：${sessionEmail || '未知账号'}（第 ${attempt} 次尝试成功）`
+          : `已读取 ChatGPT session：${sessionEmail || '未知账号'}`,
       };
     }
     await appendAutomationLog('warn', `读取 Session 尝试 ${attempt}/${READ_SESSION_ATTEMPTS} 失败：${response.message}`, 'read-chatgpt-session');

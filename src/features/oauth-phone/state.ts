@@ -280,7 +280,7 @@ function normalizeProviderSetting(value: unknown): OAuthPhoneProviderSettings | 
 }
 
 function normalizeProviderId(value: unknown): OAuthPhoneProviderId {
-  if (value === 'herosms' || value === 'smspool' || value === 'tigersms') {
+  if (value === 'herosms' || value === 'smspool' || value === 'tigersms' || value === 'foxsms') {
     return value;
   }
   return 'smsbower';
@@ -442,7 +442,7 @@ function normalizeTrackedOrder(value: unknown): OAuthPhoneTrackedOrder | null {
 }
 
 function normalizeRuntimeProviderId(value: unknown): OAuthPhoneProviderId | '' {
-  return value === 'smsbower' || value === 'herosms' || value === 'smspool' || value === 'tigersms' ? value : '';
+  return value === 'smsbower' || value === 'herosms' || value === 'smspool' || value === 'tigersms' || value === 'foxsms' ? value : '';
 }
 
 function normalizeOrderStatus(value: unknown): OAuthPhoneTrackedOrder['status'] {

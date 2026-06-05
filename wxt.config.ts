@@ -16,6 +16,7 @@ export default defineConfig({
       'https://auth.openai.com/*',
       'https://chatgpt.com/*',
       'https://pay.openai.com/*',
+      'https://js.stripe.com/*',
       'https://www.paypal.com/*',
       'https://paypal.com/*',
       'https://www.meiguodizhi.com/*',
@@ -26,6 +27,7 @@ export default defineConfig({
       'https://api.smspool.net/*',
       'https://smspool.net/*',
       'https://api.tiger-sms.com/*',
+      'https://foxsms.cc/*',
     ],
   },
 });

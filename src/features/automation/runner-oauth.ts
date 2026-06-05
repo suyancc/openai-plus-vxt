@@ -36,6 +36,7 @@ import {
 
 interface OAuthStepContext {
   ensureSelectedEmail(): Promise<AutomationEmailAccount>;
+  ensureSessionIdentity?(): Promise<void>;
   automationTargetTabId(): Promise<number>;
   bindAutomationTargetTab(tab: BrowserTabInfo | null, reason: string): Promise<number>;
   waitForAutomationTabUrl(predicate: (url: URL) => boolean, timeoutMs: number): Promise<URL>;
@@ -49,6 +50,8 @@ const OAUTH_FILE_WAIT_MS = 60_000;
 const OAUTH_CHOOSE_ACCOUNT_CLICK_TIMEOUT_MS = 20_000;
 const OAUTH_LOGIN_EMAIL_SETTLE_MS = 5_000;
 const OAUTH_POST_EMAIL_WAIT_MS = 60_000;
+const DIRECT_OAUTH_FILE_ATTEMPTS = 5;
+const DIRECT_OAUTH_FILE_RETRY_DELAY_MS = 5_000;
 
 export async function createOAuthSessionStep(context: OAuthStepContext): Promise<ActionResult> {
   await context.ensureSelectedEmail();
@@ -192,18 +195,29 @@ export async function waitOAuthEmailCodeStep(context: OAuthStepContext): Promise
   if (isOAuthAddPhoneUrl(nextUrl)) {
     const phoneResult = await startOAuthPhoneVerification(tabId);
     if (!phoneResult.ok) {
+      if (isRetryableOAuthTokenFetchFailureAfterPhone(phoneResult)) {
+        return {
+          ok: true,
+          message: `${otpResult.message}；检测到手机号绑定页，手机号验证已完成，但 OAuth token 网络请求失败，将继续第 19 步重试提取：${phoneResult.message}`,
+          data: {
+            otp: otpResult.data,
+            phone: phoneResult.state?.phoneVerification || null,
+            oauth: oauthStepSnapshot(phoneResult.state),
+          },
+        };
+      }
       return {
         ...phoneResult,
         message: `${otpResult.message}；检测到手机号绑定页，但 OAuth 手机接码失败：${phoneResult.message}`,
       };
     }
-    const saveResult = await saveCurrentOAuthFilesToAutomation(phoneResult.message);
     return {
-      ...saveResult,
-      message: `${otpResult.message}；检测到手机号绑定页，${saveResult.message}`,
+      ok: true,
+      message: `${otpResult.message}；检测到手机号绑定页，${phoneResult.message}；将继续第 19 步提取 OAuth 文件`,
       data: {
         otp: otpResult.data,
         phone: phoneResult.state?.phoneVerification || null,
+        oauth: oauthStepSnapshot(phoneResult.state),
       },
     };
   }
@@ -248,23 +262,57 @@ export async function waitOAuthEmailCodeStep(context: OAuthStepContext): Promise
 
 export async function exportOAuthFilesStep(context: Pick<OAuthStepContext, 'ensureSelectedEmail'>): Promise<ActionResult> {
   await context.ensureSelectedEmail();
-  const result = await ensureOAuthFilesFromSession();
+  const exchangeRetry = await retryOAuthCodeExchangeIfFetchFailed();
+  if (exchangeRetry.ok) {
+    return saveCurrentOAuthFilesToAutomation(exchangeRetry.message);
+  }
+  const ready = await waitForExistingOAuthFiles(8_000);
+  const result = ready.ok ? ready : await ensureOAuthFilesFromSession();
   if (!result.ok) {
     return result;
   }
   return saveCurrentOAuthFilesToAutomation(result.message);
 }
 
-export async function generateDirectFilesStep(context: Pick<OAuthStepContext, 'ensureSelectedEmail'>): Promise<ActionResult> {
-  await context.ensureSelectedEmail();
-  const response = await generateOAuthFilesFromSession();
-  if (!response.ok) {
-    return {
-      ok: false,
-      message: response.message || 'OAuth 文件生成失败',
-    };
+export async function generateDirectFilesStep(
+  context: Pick<OAuthStepContext, 'ensureSelectedEmail' | 'ensureSessionIdentity' | 'isStopRequested'>,
+): Promise<ActionResult> {
+  if (context.ensureSessionIdentity) {
+    await context.ensureSessionIdentity();
+  } else {
+    await context.ensureSelectedEmail();
   }
-  return saveCurrentOAuthFilesToAutomation(response.message);
+  let last: ActionResult = { ok: false, message: '尚未尝试生成 OAuth 文件' };
+  for (let attempt = 1; attempt <= DIRECT_OAUTH_FILE_ATTEMPTS; attempt += 1) {
+    if (context.isStopRequested()) {
+      return { ok: false, message: '直接生成 OAuth 文件已停止' };
+    }
+    const response = await generateOAuthFilesFromSession();
+    if (!response.ok) {
+      last = {
+        ok: false,
+        message: response.message || 'OAuth 文件生成失败',
+      };
+    } else {
+      last = await saveCurrentOAuthFilesToAutomation(response.message);
+      if (last.ok) {
+        return attempt === 1
+          ? last
+          : {
+              ...last,
+              message: `${last.message}；第 ${attempt}/${DIRECT_OAUTH_FILE_ATTEMPTS} 次尝试成功`,
+            };
+      }
+    }
+    if (attempt < DIRECT_OAUTH_FILE_ATTEMPTS) {
+      await delay(DIRECT_OAUTH_FILE_RETRY_DELAY_MS);
+    }
+  }
+  return {
+    ...last,
+    ok: false,
+    message: `直接生成 OAuth 文件重试 ${DIRECT_OAUTH_FILE_ATTEMPTS} 次仍失败：${last.message}`,
+  };
 }
 
 async function saveCurrentOAuthFilesToAutomation(prefix: string): Promise<ActionResult> {
@@ -341,6 +389,90 @@ async function waitForOAuthFiles(
     ok: false,
     message: `等待 OAuth token 交换超时${lastMessage ? `：${lastMessage}` : ''}`,
   };
+}
+
+async function waitForExistingOAuthFiles(timeoutMs: number): Promise<ActionResult> {
+  const deadline = Date.now() + timeoutMs;
+  let lastMessage = '';
+  while (Date.now() <= deadline) {
+    const oauth = await loadOAuthState();
+    lastMessage = oauth.exchangeMessage || '';
+    if (oauth.exchangeStatus === 'success' && (oauth.sub2apiJson.trim() || oauth.cpaJson.trim())) {
+      return { ok: true, message: oauth.exchangeMessage || 'OAuth 文件已生成' };
+    }
+    if (oauth.exchangeStatus === 'error' && (oauth.callbackUrl || oauth.codeParam)) {
+      return { ok: false, message: oauth.exchangeMessage || 'OAuth token 交换失败' };
+    }
+    if (oauth.exchangeStatus !== 'pending') {
+      break;
+    }
+    await delay(500);
+  }
+  return {
+    ok: false,
+    message: lastMessage ? `等待 OAuth 文件生成未完成：${lastMessage}` : 'OAuth 文件尚未生成',
+  };
+}
+
+function oauthStepSnapshot(state: unknown): Record<string, unknown> {
+  const oauth = isRecord(state) ? state : {};
+  return {
+    exchangeStatus: String(oauth.exchangeStatus || ''),
+    exchangeMessage: String(oauth.exchangeMessage || ''),
+    exportSource: String(oauth.exportSource || ''),
+    hasCallbackUrl: Boolean(oauth.callbackUrl),
+    hasCodeParam: Boolean(oauth.codeParam),
+    hasCredentials: Boolean(oauth.credentials),
+    hasSub2ApiJson: Boolean(oauth.sub2apiJson),
+    hasCpaJson: Boolean(oauth.cpaJson),
+  };
+}
+
+function isRetryableOAuthTokenFetchFailureAfterPhone(result: ActionResult & { state?: unknown }): boolean {
+  const state = isRecord(result.state) ? result.state : {};
+  const exchangeStatus = String(state.exchangeStatus || '');
+  const hasCallbackUrl = Boolean(state.callbackUrl);
+  const hasCodeParam = Boolean(state.codeParam);
+  const text = result.message.toLowerCase();
+  return exchangeStatus === 'error' &&
+    hasCallbackUrl &&
+    hasCodeParam &&
+    text.includes('oauth token 请求失败') &&
+    text.includes('failed to fetch');
+}
+
+async function retryOAuthCodeExchangeIfFetchFailed(): Promise<ActionResult> {
+  const oauth = await loadOAuthState();
+  if (!isRetryableOAuthTokenFetchFailureState(oauth)) {
+    return { ok: false, message: '当前 OAuth 状态不需要重试 token 交换' };
+  }
+  const exchange = await exchangeCurrentOAuthCode(oauth.callbackUrl, OAUTH_FILE_WAIT_MS);
+  if (!exchange.ok) {
+    return {
+      ok: false,
+      message: `OAuth token 网络失败后重试仍失败：${exchange.message}`,
+    };
+  }
+  const files = await waitForExistingOAuthFiles(10_000);
+  if (!files.ok) {
+    return {
+      ok: false,
+      message: `OAuth token 重试成功，但文件仍未生成：${files.message}`,
+    };
+  }
+  return {
+    ok: true,
+    message: exchange.message || files.message || 'OAuth token 已重试换取完成',
+  };
+}
+
+function isRetryableOAuthTokenFetchFailureState(oauth: Awaited<ReturnType<typeof loadOAuthState>>): boolean {
+  const text = String(oauth.exchangeMessage || '').toLowerCase();
+  return oauth.exchangeStatus === 'error' &&
+    Boolean(oauth.callbackUrl) &&
+    Boolean(oauth.codeParam) &&
+    text.includes('oauth token 请求失败') &&
+    text.includes('failed to fetch');
 }
 
 async function waitForOAuthAction(

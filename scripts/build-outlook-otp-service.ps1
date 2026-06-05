@@ -7,6 +7,7 @@ $releaseRoot = $outputRoot
 $distRoot = Join-Path $outputRoot 'dist'
 $buildRoot = Join-Path $outputRoot 'build'
 $specRoot = $outputRoot
+$staticRoot = Join-Path $serviceRoot 'static'
 $exePath = Join-Path $distRoot 'outlook-otp-service.exe'
 $zipPath = Join-Path $outputRoot 'outlook-otp-service.zip'
 $finalExePath = Join-Path $outputRoot 'outlook-otp-service.exe'
@@ -18,6 +19,7 @@ Get-ChildItem -Path $outputRoot -Directory -ErrorAction SilentlyContinue |
   }
 
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+$staticData = "$staticRoot;static"
 
 Push-Location $serviceRoot
 try {
@@ -32,7 +34,11 @@ try {
     --collect-submodules fastapi `
     --collect-submodules pydantic `
     --collect-submodules starlette `
+    --add-data $staticData `
     server.py
+  if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller failed with exit code $LASTEXITCODE"
+  }
 }
 finally {
   Pop-Location

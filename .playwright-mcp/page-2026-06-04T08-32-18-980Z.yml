@@ -1,0 +1,73 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - heading "Outlook 快速取件" [level=1] [ref=e5]
+      - paragraph [ref=e6]: 输入账号行拉取最近多封邮件，点击卡片再读取完整正文。
+    - generic [ref=e7]: 等待输入
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - heading "账号与筛选" [level=2] [ref=e11]
+        - button "清空" [ref=e13] [cursor=pointer]
+      - textbox "email----password----client_id----refresh_token" [ref=e14]
+      - generic [ref=e15]:
+        - generic [ref=e16]:
+          - text: 数量
+          - combobox "数量" [ref=e17]:
+            - option "5 封"
+            - option "10 封" [selected]
+            - option "20 封"
+            - option "30 封"
+        - generic [ref=e18]:
+          - text: 邮箱目录
+          - combobox "邮箱目录" [ref=e19]:
+            - option "INBOX + Junk" [selected]
+            - option "INBOX"
+            - option "Junk"
+        - generic [ref=e20]:
+          - text: 关键词
+          - textbox "关键词" [ref=e21]:
+            - /placeholder: 可选，仅 ASCII
+        - generic [ref=e22]:
+          - text: 范围
+          - combobox "范围" [ref=e23]:
+            - option "全部邮件" [selected]
+            - option "仅未读"
+      - generic [ref=e24]:
+        - button "拉取邮件" [ref=e25] [cursor=pointer]
+        - button "复制验证码" [disabled] [ref=e26]
+      - generic [ref=e27]:
+        - generic [ref=e28]:
+          - text: 账号：
+          - strong [ref=e29]: "-"
+        - generic [ref=e30]:
+          - text: 协议：
+          - strong [ref=e31]: OAuth/IMAP
+        - generic [ref=e32]:
+          - text: 目录：
+          - strong [ref=e33]: "-"
+    - generic [ref=e34]:
+      - generic [ref=e35]:
+        - heading "邮件列表" [level=2] [ref=e36]
+        - generic [ref=e37]:
+          - generic [ref=e38]: 0 封
+          - generic [ref=e39]: OTP 0
+      - generic [ref=e41]: 输入账号行后点击拉取邮件
+      - generic [ref=e42]:
+        - generic [ref=e43]:
+          - generic [ref=e44]:
+            - heading "未选择邮件" [level=2] [ref=e45]
+            - generic [ref=e46]: "-"
+          - generic [ref=e47]:
+            - generic [ref=e48]: 发件人
+            - generic [ref=e49]: "-"
+            - generic [ref=e50]: 收件人
+            - generic [ref=e51]: "-"
+            - generic [ref=e52]: 时间
+            - generic [ref=e53]: "-"
+            - generic [ref=e54]: 位置
+            - generic [ref=e55]: "-"
+        - generic [ref=e56]:
+          - button "文本" [ref=e57] [cursor=pointer]
+          - button "HTML" [ref=e58] [cursor=pointer]
+        - generic [ref=e60]: "-"

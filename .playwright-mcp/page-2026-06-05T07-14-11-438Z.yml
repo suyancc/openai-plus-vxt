@@ -1,0 +1,39 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - link "ChatGPT 首页" [ref=e4] [cursor=pointer]:
+      - /url: /?slm=1
+      - img "ChatGPT 徽标" [ref=e5]
+    - generic [ref=e14]:
+      - generic [ref=e17]:
+        - heading "登录或注册" [level=2] [ref=e18]
+        - form [ref=e19]:
+          - generic [ref=e20]:
+            - button "使用 Google 账户继续" [ref=e21] [cursor=pointer]:
+              - generic [ref=e22]:
+                - img [ref=e25]
+                - text: 使用 Google 账户继续
+            - button "使用 Apple 账户继续" [ref=e27] [cursor=pointer]:
+              - generic [ref=e28]:
+                - img [ref=e31]
+                - text: 使用 Apple 账户继续
+            - button "使用电话号码继续" [ref=e33] [cursor=pointer]:
+              - generic [ref=e34]:
+                - img [ref=e37]
+                - text: 使用电话号码继续
+          - generic [ref=e41]: 或
+          - textbox "电子邮件地址" [ref=e48]
+          - button "继续" [ref=e49] [cursor=pointer]:
+            - generic [ref=e50]: 继续
+          - link "抢先试用" [ref=e52] [cursor=pointer]:
+            - /url: "#"
+      - generic [ref=e53]:
+        - img [ref=e54]:
+          - generic [ref=e55]: ChatGPT
+        - generic [ref=e57]:
+          - link "使用条款" [ref=e58] [cursor=pointer]:
+            - /url: https://openai.com/policies/terms-of-use
+          - generic [ref=e59]: "|"
+          - link "隐私政策" [ref=e60] [cursor=pointer]:
+            - /url: https://openai.com/policies/privacy-policy
+  - alert [ref=e74]
+  - status [ref=e75]

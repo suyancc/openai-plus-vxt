@@ -20,6 +20,8 @@ export function isTransientContentScriptResult(result: ActionResult): boolean {
     message.includes('receiving end does not exist') ||
     message.includes('message channel closed') ||
     message.includes('message port closed') ||
+    message.includes('asynchronous response') ||
+    message.includes('before a response was received') ||
     message.includes('extension context invalidated');
 }
 
@@ -73,7 +75,13 @@ export function accountUnavailableFailureLabel(stepId: AutomationStepId, result:
   if (isOpenAiCheckoutPaypalUnavailableFailure(stepId, result)) {
     return '邮箱不可用';
   }
+  if (isOpenAiCheckoutSubmitUnavailableFailure(stepId, result)) {
+    return '邮箱不可用';
+  }
   if (isCheckoutTrialUnavailableFailure(stepId, result)) {
+    return '邮箱不可用';
+  }
+  if (isChatGptCheckoutOrganizationRequiredFailure(stepId, result)) {
     return '邮箱不可用';
   }
   if (isOpenAiCheckoutNonZeroAmountFailure(stepId, result)) {
@@ -141,6 +149,17 @@ function isOpenAiCheckoutPaypalUnavailableFailure(stepId: AutomationStepId, resu
     text.includes('paypal unavailable');
 }
 
+function isOpenAiCheckoutSubmitUnavailableFailure(stepId: AutomationStepId, result: ActionResult): boolean {
+  if (stepId !== 'submit-openai-checkout') {
+    return false;
+  }
+  const text = resultText(result);
+  return text.includes('出错了，请重试') ||
+    text.includes('付款未获批准') ||
+    text.includes('something went wrong') ||
+    text.includes('please try again');
+}
+
 function isCheckoutTrialUnavailableFailure(stepId: AutomationStepId, result: ActionResult): boolean {
   if (stepId !== 'create-checkout-link') {
     return false;
@@ -151,6 +170,15 @@ function isCheckoutTrialUnavailableFailure(stepId: AutomationStepId, result: Act
     text.includes('not eligible') ||
     text.includes('ineligible') ||
     text.includes('trial unavailable');
+}
+
+function isChatGptCheckoutOrganizationRequiredFailure(stepId: AutomationStepId, result: ActionResult): boolean {
+  if (stepId !== 'create-checkout-link') {
+    return false;
+  }
+  const text = resultText(result);
+  return (text.includes('chatgpt checkout http 401') || text.includes('http 401')) &&
+    text.includes('must be a member of an organization');
 }
 
 function isOpenAiCheckoutNonZeroAmountFailure(stepId: AutomationStepId, result: ActionResult): boolean {
@@ -302,6 +330,17 @@ export function isPhoneNumberRejectedFailure(result: ActionResult): boolean {
   const text = `${payment.paymentError || ''} ${result.message}`.toLowerCase();
   return text.includes('try a different phone number') ||
     (text.includes('unable to complete your request') && text.includes('phone number')) ||
+    text.includes('虚拟号码') ||
+    text.includes('虚拟电话号码') ||
+    text.includes('非虚拟电话号码') ||
+    text.includes('voip') ||
+    text.includes('virtual phone') ||
+    text.includes('virtual number') ||
+    text.includes('non-virtual phone number') ||
+    text.includes("couldn't send a text message to this phone number") ||
+    text.includes('could not send a text message to this phone number') ||
+    text.includes('switched to whatsapp') ||
+    text.includes('continue to send a verification code on whatsapp') ||
     text.includes('手机号不可用') ||
     text.includes('更换手机号');
 }
@@ -331,6 +370,24 @@ export function isRetryableAboutYouTimeout(result: ActionResult): boolean {
   return text.includes('operation timed out') ||
     (text.includes('资料页错误') && (text.includes('timed out') || text.includes('timeout'))) ||
     (text.includes('糟糕') && (text.includes('timed out') || text.includes('timeout')));
+}
+
+export function isRetryableAboutYouReadyFailure(result: ActionResult): boolean {
+  if (isRetryableAboutYouTimeout(result)) {
+    return true;
+  }
+  if (isRecord(result.data) && result.data.profilePendingRender === true) {
+    return true;
+  }
+  const text = result.message.toLowerCase();
+  return text.includes('资料输入框还没有渲染完成') ||
+    text.includes('创建账号按钮还没有渲染完成') ||
+    text.includes('等待页面控件渲染超时') ||
+    text.includes('没有找到全名输入框') ||
+    text.includes('没有找到年龄输入框') ||
+    text.includes('没有找到生日输入控件') ||
+    text.includes('没有找到完成账户创建按钮') ||
+    text.includes('完成账户创建按钮仍然不可点击');
 }
 
 export function isSmsNumberRejectedStep(stepId: AutomationStepId): boolean {

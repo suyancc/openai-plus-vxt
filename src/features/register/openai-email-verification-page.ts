@@ -1,12 +1,10 @@
 import type { ActionResult } from './types';
-
-const OTP_SELECTORS = [
-  'input[name="code"]',
-  'input[name="otp"]',
-  'input[autocomplete="one-time-code"]',
-  'input[inputmode="numeric"]',
-  'input[type="text"]',
-];
+import {
+  buildOtpDebugData,
+  fillOtpTarget,
+  findOtpContinueButton,
+  findOtpTarget,
+} from './openai-email-otp-dom';
 
 export function isEmailVerificationPage(): boolean {
   return location.hostname === 'auth.openai.com' && location.pathname.startsWith('/email-verification');
@@ -18,20 +16,18 @@ export async function fillOtpAndContinue(code: string): Promise<ActionResult> {
     return fail('验证码不能为空');
   }
 
-  const input = findOtpInput();
-  if (!input) {
-    return fail('没有找到验证码输入框');
+  const target = findOtpTarget();
+  if (!target) {
+    return fail('没有找到验证码输入框', buildOtpDebugData());
   }
 
-  setNativeValue(input, normalized);
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  input.dispatchEvent(new Event('change', { bubbles: true }));
+  fillOtpTarget(target, normalized);
 
   await waitForUiTick();
 
-  const button = findContinueButton();
+  const button = findOtpContinueButton();
   if (!button) {
-    return fail('没有找到验证码继续按钮');
+    return fail('没有找到验证码继续按钮', buildOtpDebugData());
   }
 
   if (button.disabled) {
@@ -42,45 +38,8 @@ export async function fillOtpAndContinue(code: string): Promise<ActionResult> {
     return fail('验证码继续按钮仍然不可点击');
   }
 
-  button.click();
-  return ok('已填入验证码并点击继续');
-}
-
-function findOtpInput(): HTMLInputElement | null {
-  for (const selector of OTP_SELECTORS) {
-    const input = document.querySelector<HTMLInputElement>(selector);
-    if (input) {
-      return input;
-    }
-  }
-
-  const candidates = Array.from(document.querySelectorAll<HTMLInputElement>('input'));
-  return candidates.find((input) => {
-    const label = [
-      input.placeholder,
-      input.ariaLabel,
-      input.name,
-      input.id,
-    ].join(' ').toLowerCase();
-    return label.includes('code') || label.includes('otp') || label.includes('验证');
-  }) ?? null;
-}
-
-function findContinueButton(): HTMLButtonElement | null {
-  const submit = document.querySelector<HTMLButtonElement>('button[type="submit"]');
-  if (submit) {
-    return submit;
-  }
-
-  return Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((button) => {
-    const text = (button.textContent || '').trim();
-    return text === '继续' || text.toLowerCase() === 'continue';
-  }) ?? null;
-}
-
-function setNativeValue(input: HTMLInputElement, value: string): void {
-  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
-  descriptor?.set?.call(input, value);
+  clickElement(button);
+  return ok(`已填入验证码并点击继续（${target.kind === 'multi' ? `${target.inputs.length} 格输入框` : '单输入框'}）`);
 }
 
 function waitForUiTick(): Promise<void> {
@@ -102,10 +61,27 @@ function waitForEnabled(button: HTMLButtonElement, timeoutMs: number): Promise<v
   });
 }
 
-function ok(message: string): ActionResult {
-  return { ok: true, message };
+function clickElement(element: HTMLElement): void {
+  element.scrollIntoView({ block: 'center', inline: 'center' });
+  for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+    const EventCtor = type.startsWith('pointer') ? PointerEvent : MouseEvent;
+    element.dispatchEvent(new EventCtor(type, {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      button: 0,
+      buttons: type.endsWith('down') ? 1 : 0,
+      pointerId: 1,
+      pointerType: 'mouse',
+    }));
+  }
+  element.click();
 }
 
-function fail(message: string): ActionResult {
-  return { ok: false, message };
+function ok(message: string, data?: unknown): ActionResult {
+  return data === undefined ? { ok: true, message } : { ok: true, message, data };
+}
+
+function fail(message: string, data?: unknown): ActionResult {
+  return data === undefined ? { ok: false, message } : { ok: false, message, data };
 }

@@ -27,7 +27,9 @@ export type AutomationLogLevel = 'info' | 'success' | 'error' | 'warn';
 export type AutomationEmailStatus = 'idle' | 'running' | 'used' | 'error';
 export type AutomationEmailSelectionMode = 'next' | 'specified';
 export type AutomationSmsSelectionMode = 'random' | 'next';
+export type AutomationSmsSourceMode = 'api' | 'foxsms';
 export type AutomationOAuthExtractMode = 'email' | 'direct';
+export type AutomationRegistrationMode = 'email' | 'phone';
 
 export interface AutomationStepDefinition {
   id: AutomationStepId;
@@ -57,8 +59,12 @@ export interface AutomationEmailAccount {
 export interface AutomationSmsTarget {
   id: string;
   rawInput: string;
+  source: AutomationSmsSourceMode;
   phone: string;
   url: string;
+  activationId: string;
+  countryCode: string;
+  projectId: string;
   disabled: boolean;
   disabledAt: number;
   disabledReason: string;
@@ -69,10 +75,12 @@ export interface AutomationSmsTarget {
 }
 
 export interface AutomationSettings {
+  registrationMode: AutomationRegistrationMode;
   rawEmails: string;
   rawSms: string;
   emailSelectionMode: AutomationEmailSelectionMode;
   specifiedEmailId: string;
+  smsSourceMode: AutomationSmsSourceMode;
   smsSelectionMode: AutomationSmsSelectionMode;
   batchAccountLimit: number;
   stopOnError: boolean;
@@ -89,6 +97,15 @@ export interface AutomationRunState {
   currentStepId: AutomationStepId | '';
   selectedEmailId: string;
   selectedSmsId: string;
+  selectedRegisterPhoneId: string;
+  registerPhoneSource: string;
+  registerPhoneNumber: string;
+  registerPhoneCountryId: string;
+  registerPhoneCountryIso: string;
+  registerPhoneServiceCode: string;
+  registerPhoneActivationId: string;
+  registerPhoneOperator: string;
+  registerPhoneCost: number;
   checkoutUrl: string;
   sessionEmail: string;
   targetTabId: number;

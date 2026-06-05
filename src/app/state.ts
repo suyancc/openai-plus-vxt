@@ -12,9 +12,11 @@ import type {
   AutomationEmailSelectionMode,
   AutomationLogEntry,
   AutomationOAuthExtractMode,
+  AutomationRegistrationMode,
   AutomationRunState,
   AutomationSettings,
   AutomationSmsSelectionMode,
+  AutomationSmsSourceMode,
   AutomationSmsTarget,
   AutomationState,
   AutomationStepRecord,
@@ -70,10 +72,12 @@ const DEFAULT_SMS_RELAY_STATE: SmsRelayState = {
 };
 
 const DEFAULT_AUTOMATION_SETTINGS: AutomationSettings = {
+  registrationMode: 'email',
   rawEmails: '',
   rawSms: '',
   emailSelectionMode: 'next',
   specifiedEmailId: '',
+  smsSourceMode: 'api',
   smsSelectionMode: 'random',
   batchAccountLimit: 1,
   stopOnError: true,
@@ -90,6 +94,15 @@ const DEFAULT_AUTOMATION_RUN: AutomationRunState = {
   currentStepId: '',
   selectedEmailId: '',
   selectedSmsId: '',
+  selectedRegisterPhoneId: '',
+  registerPhoneSource: '',
+  registerPhoneNumber: '',
+  registerPhoneCountryId: '',
+  registerPhoneCountryIso: '',
+  registerPhoneServiceCode: '',
+  registerPhoneActivationId: '',
+  registerPhoneOperator: '',
+  registerPhoneCost: 0,
   checkoutUrl: '',
   sessionEmail: '',
   targetTabId: 0,
@@ -297,13 +310,24 @@ function normalizeAppState(value: unknown): AppState {
 
 function normalizeAutomationState(value: unknown): AutomationState {
   const source = isRecord(value) ? value : {};
+  const settings = normalizeAutomationSettings(source.settings);
+  const smsTargets = Array.isArray(source.smsTargets)
+    ? source.smsTargets
+      .map(normalizeAutomationSmsTarget)
+      .filter((item): item is AutomationSmsTarget => Boolean(item))
+      .filter((target) => settings.smsSourceMode === 'foxsms' || target.source === 'api')
+    : [];
+  const run = normalizeAutomationRun(source.run);
+  if (run.selectedSmsId && !smsTargets.some((target) => target.id === run.selectedSmsId)) {
+    run.selectedSmsId = '';
+  }
   return {
-    settings: normalizeAutomationSettings(source.settings),
+    settings,
     emails: Array.isArray(source.emails) ? source.emails.map(normalizeAutomationEmail).filter((item): item is AutomationEmailAccount => Boolean(item)) : [],
-    smsTargets: Array.isArray(source.smsTargets) ? source.smsTargets.map(normalizeAutomationSmsTarget).filter((item): item is AutomationSmsTarget => Boolean(item)) : [],
+    smsTargets,
     steps: normalizeAutomationSteps(source.steps),
     logs: Array.isArray(source.logs) ? source.logs.map(normalizeAutomationLog).filter((item): item is AutomationLogEntry => Boolean(item)).slice(0, 160) : [],
-    run: normalizeAutomationRun(source.run),
+    run,
     generatedFiles: normalizeAutomationGeneratedFiles(source.generatedFiles),
     updatedAt: Number(source.updatedAt || DEFAULT_AUTOMATION_STATE.updatedAt),
   };
@@ -311,11 +335,14 @@ function normalizeAutomationState(value: unknown): AutomationState {
 
 function normalizeAutomationSettings(value: unknown): AutomationSettings {
   const source = isRecord(value) ? value : {};
+  const rawSms = normalizeAutomationApiRawSms(source.rawSms);
   return {
+    registrationMode: normalizeAutomationRegistrationMode(source.registrationMode),
     rawEmails: String(source.rawEmails || DEFAULT_AUTOMATION_SETTINGS.rawEmails),
-    rawSms: String(source.rawSms || DEFAULT_AUTOMATION_SETTINGS.rawSms),
+    rawSms,
     emailSelectionMode: normalizeAutomationEmailSelectionMode(source.emailSelectionMode),
     specifiedEmailId: String(source.specifiedEmailId || DEFAULT_AUTOMATION_SETTINGS.specifiedEmailId),
+    smsSourceMode: normalizeAutomationSmsSourceMode(source.smsSourceMode),
     smsSelectionMode: normalizeAutomationSmsSelectionMode(source.smsSelectionMode),
     batchAccountLimit: normalizeAutomationBatchAccountLimit(source.batchAccountLimit),
     stopOnError: source.stopOnError === undefined ? DEFAULT_AUTOMATION_SETTINGS.stopOnError : Boolean(source.stopOnError),
@@ -327,6 +354,14 @@ function normalizeAutomationSettings(value: unknown): AutomationSettings {
   };
 }
 
+function normalizeAutomationApiRawSms(value: unknown): string {
+  return String(value || DEFAULT_AUTOMATION_SETTINGS.rawSms)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.includes('----'))
+    .join('\n');
+}
+
 function normalizeAutomationRun(value: unknown): AutomationRunState {
   const source = isRecord(value) ? value : {};
   return {
@@ -335,6 +370,15 @@ function normalizeAutomationRun(value: unknown): AutomationRunState {
     currentStepId: String(source.currentStepId || DEFAULT_AUTOMATION_RUN.currentStepId) as AutomationRunState['currentStepId'],
     selectedEmailId: String(source.selectedEmailId || DEFAULT_AUTOMATION_RUN.selectedEmailId),
     selectedSmsId: String(source.selectedSmsId || DEFAULT_AUTOMATION_RUN.selectedSmsId),
+    selectedRegisterPhoneId: String(source.selectedRegisterPhoneId || DEFAULT_AUTOMATION_RUN.selectedRegisterPhoneId),
+    registerPhoneSource: String(source.registerPhoneSource || DEFAULT_AUTOMATION_RUN.registerPhoneSource),
+    registerPhoneNumber: String(source.registerPhoneNumber || DEFAULT_AUTOMATION_RUN.registerPhoneNumber),
+    registerPhoneCountryId: String(source.registerPhoneCountryId || DEFAULT_AUTOMATION_RUN.registerPhoneCountryId),
+    registerPhoneCountryIso: String(source.registerPhoneCountryIso || DEFAULT_AUTOMATION_RUN.registerPhoneCountryIso).trim().toUpperCase(),
+    registerPhoneServiceCode: String(source.registerPhoneServiceCode || DEFAULT_AUTOMATION_RUN.registerPhoneServiceCode),
+    registerPhoneActivationId: String(source.registerPhoneActivationId || DEFAULT_AUTOMATION_RUN.registerPhoneActivationId),
+    registerPhoneOperator: String(source.registerPhoneOperator || DEFAULT_AUTOMATION_RUN.registerPhoneOperator),
+    registerPhoneCost: Number(source.registerPhoneCost || DEFAULT_AUTOMATION_RUN.registerPhoneCost),
     checkoutUrl: String(source.checkoutUrl || DEFAULT_AUTOMATION_RUN.checkoutUrl),
     sessionEmail: String(source.sessionEmail || DEFAULT_AUTOMATION_RUN.sessionEmail),
     targetTabId: Number(source.targetTabId || DEFAULT_AUTOMATION_RUN.targetTabId),
@@ -394,15 +438,20 @@ function normalizeAutomationSmsTarget(value: unknown): AutomationSmsTarget | nul
     return null;
   }
   const phone = String(value.phone || '').trim();
+  const source = normalizeAutomationSmsSourceMode(value.source);
   const url = String(value.url || '').trim();
-  if (!phone || !url) {
+  if (!phone || (source === 'api' && !url)) {
     return null;
   }
   return {
-    id: String(value.id || `${phone}-${url}`),
-    rawInput: String(value.rawInput || `${phone}----${url}`),
+    id: String(value.id || (source === 'foxsms' ? `foxsms:${phone}` : `${phone}-${url}`)),
+    rawInput: String(value.rawInput || (source === 'foxsms' ? phone : `${phone}----${url}`)),
+    source,
     phone,
     url,
+    activationId: String(value.activationId || ''),
+    countryCode: String(value.countryCode || (source === 'foxsms' ? 'jpn' : '')),
+    projectId: String(value.projectId || (source === 'foxsms' ? '35' : '')),
     disabled: value.disabled === true,
     disabledAt: Number(value.disabledAt || 0),
     disabledReason: String(value.disabledReason || ''),
@@ -470,6 +519,14 @@ function normalizeAutomationEmailSelectionMode(value: unknown): AutomationEmailS
 
 function normalizeAutomationSmsSelectionMode(value: unknown): AutomationSmsSelectionMode {
   return value === 'next' ? 'next' : 'random';
+}
+
+function normalizeAutomationSmsSourceMode(value: unknown): AutomationSmsSourceMode {
+  return 'api';
+}
+
+function normalizeAutomationRegistrationMode(value: unknown): AutomationRegistrationMode {
+  return value === 'phone' ? 'phone' : 'email';
 }
 
 function normalizeAutomationBatchAccountLimit(value: unknown): number {

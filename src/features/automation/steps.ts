@@ -1,4 +1,10 @@
-import type { AutomationOAuthExtractMode, AutomationStepDefinition, AutomationStepId, AutomationStepRecord } from './types';
+import type {
+  AutomationOAuthExtractMode,
+  AutomationRegistrationMode,
+  AutomationStepDefinition,
+  AutomationStepId,
+  AutomationStepRecord,
+} from './types';
 
 export const AUTOMATION_STEPS: AutomationStepDefinition[] = [
   {
@@ -123,6 +129,25 @@ export const AUTOMATION_STEPS: AutomationStepDefinition[] = [
   },
 ];
 
+const PHONE_REGISTRATION_STEP_ORDER: AutomationStepId[] = [
+  'cleanup-environment',
+  'open-register',
+  'select-email',
+  'fill-register-email',
+  'wait-register-email-code',
+  'fill-profile',
+  'read-chatgpt-session',
+  'create-checkout-link',
+  'open-checkout-link',
+  'submit-openai-checkout',
+  'open-paypal-account',
+  'fill-paypal-email',
+  'select-sms',
+  'fill-payment-profile',
+  'wait-payment-sms',
+  'generate-direct-files',
+];
+
 export function createDefaultStepRecords(): AutomationStepRecord[] {
   return AUTOMATION_STEPS.map((step) => ({
     id: step.id,
@@ -145,21 +170,72 @@ export function nextAutomationStepId(id: AutomationStepId | ''): AutomationStepI
   return index >= 0 ? AUTOMATION_STEPS[index + 1]?.id || '' : '';
 }
 
-export function visibleAutomationSteps(mode: AutomationOAuthExtractMode): AutomationStepDefinition[] {
-  if (mode === 'direct') {
+export function getDisplayStepDefinition(
+  step: AutomationStepDefinition,
+  registrationMode: AutomationRegistrationMode = 'email',
+): AutomationStepDefinition {
+  if (registrationMode !== 'phone') {
+    return step;
+  }
+  if (step.id === 'select-email') {
+    return {
+      ...step,
+      title: '获取手机号',
+      description: '从 OAuth 手机接码配置中获取一个手机号。',
+    };
+  }
+  if (step.id === 'open-register') {
+    return {
+      ...step,
+      title: '打开手机号注册页',
+      description: '打开 ChatGPT 登录页，后续选择“使用电话号码继续”。',
+    };
+  }
+  if (step.id === 'fill-register-email') {
+    return {
+      ...step,
+      title: '填写注册手机号',
+      description: '在 ChatGPT 注册入口选择手机号继续，并填写当前手机号。',
+    };
+  }
+  if (step.id === 'wait-register-email-code') {
+    return {
+      ...step,
+      title: '接收手机验证码',
+      description: '轮询 OpenAI 手机接码并提交短信验证码。',
+    };
+  }
+  return step;
+}
+
+export function visibleAutomationSteps(
+  mode: AutomationOAuthExtractMode,
+  registrationMode: AutomationRegistrationMode = 'email',
+): AutomationStepDefinition[] {
+  const display = (steps: AutomationStepDefinition[]) => steps.map((step) => getDisplayStepDefinition(step, registrationMode));
+  if (mode === 'direct' || registrationMode === 'phone') {
     const hidden = new Set<AutomationStepId>([
       'create-oauth-session',
       'fill-oauth-email',
       'wait-oauth-email-code',
       'export-oauth-files',
     ]);
-    return AUTOMATION_STEPS.filter((step) => !hidden.has(step.id));
+    const steps = AUTOMATION_STEPS.filter((step) => !hidden.has(step.id));
+    if (registrationMode === 'phone') {
+      const byId = new Map(steps.map((step) => [step.id, step]));
+      return display(PHONE_REGISTRATION_STEP_ORDER.map((id) => byId.get(id)).filter((step): step is AutomationStepDefinition => Boolean(step)));
+    }
+    return display(steps);
   }
-  return AUTOMATION_STEPS.filter((step) => step.id !== 'generate-direct-files');
+  return display(AUTOMATION_STEPS.filter((step) => step.id !== 'generate-direct-files'));
 }
 
-export function nextVisibleAutomationStepId(id: AutomationStepId | '', mode: AutomationOAuthExtractMode): AutomationStepId | '' {
-  const steps = visibleAutomationSteps(mode);
+export function nextVisibleAutomationStepId(
+  id: AutomationStepId | '',
+  mode: AutomationOAuthExtractMode,
+  registrationMode: AutomationRegistrationMode = 'email',
+): AutomationStepId | '' {
+  const steps = visibleAutomationSteps(mode, registrationMode);
   if (!id) {
     return steps[0]?.id || '';
   }

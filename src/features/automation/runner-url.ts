@@ -1,6 +1,9 @@
 export function isRegisterUrl(url: URL): boolean {
   return (url.hostname === 'chatgpt.com' && url.pathname.startsWith('/auth/login')) ||
-    (url.hostname === 'auth.openai.com' && url.pathname.startsWith('/log-in'));
+    (
+      url.hostname === 'auth.openai.com' &&
+      isOpenAiLogInPath(url.pathname)
+    );
 }
 
 export function isOAuthLoginUrl(url: URL): boolean {
@@ -34,11 +37,14 @@ export function isAfterEmailVerificationUrl(url: URL): boolean {
 }
 
 export function isPaymentUrl(url: URL): boolean {
-  return url.hostname === 'pay.openai.com' || url.hostname.endsWith('paypal.com');
+  return isOpenAiCheckoutUrl(url) || url.hostname === 'pay.openai.com' || url.hostname.endsWith('paypal.com');
 }
 
 export function isOpenAiCheckoutUrl(url: URL): boolean {
-  return url.hostname === 'pay.openai.com' && url.pathname.startsWith('/c/pay/cs_');
+  return (
+    (url.hostname === 'pay.openai.com' && url.pathname.startsWith('/c/pay/cs_')) ||
+    (url.hostname === 'chatgpt.com' && url.pathname.startsWith('/checkout/openai_llc/cs_'))
+  );
 }
 
 export function isOAuthCallbackUrl(url: URL): boolean {
@@ -124,4 +130,8 @@ export function paymentCompletionStageLabel(stage: string): string {
 function normalizePathname(pathname: string): string {
   const normalized = pathname.replace(/\/+$/, '');
   return normalized || '/';
+}
+
+function isOpenAiLogInPath(pathname: string): boolean {
+  return pathname === '/log-in' || pathname.startsWith('/log-in/');
 }

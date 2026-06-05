@@ -51,6 +51,8 @@ import type {
   OAuthPhoneSettings,
 } from '../../src/features/oauth-phone/types';
 
+const PUBLIC_SMS_SOURCE_MODE = 'api';
+
 type PasteImportDialogOptions = {
   title: string;
   description: string;
@@ -78,6 +80,9 @@ async function render(): Promise<void> {
   const latestGenerated = generatedFiles.records[0] || null;
   const hasSub2api = Boolean(generatedFiles.sub2apiJson.trim());
   const hasCpa = Boolean(generatedFiles.cpaJson.trim());
+  const registrationMode = state.settings.registrationMode === 'phone' ? 'phone' : 'email';
+  const isPhoneRegistration = registrationMode === 'phone';
+  const effectiveOAuthExtractMode = isPhoneRegistration ? 'direct' : state.settings.oauthExtractMode;
 
   app!.innerHTML = `
     <section class="page">
@@ -96,12 +101,33 @@ async function render(): Promise<void> {
         <details class="settings-panel" open>
           <summary class="settings-panel-summary">
             <span>
-              <strong>邮箱池</strong>
-              <em>${state.emails.length} 个邮箱 · ${state.emails.filter((email) => email.status === 'error').length} 个失败</em>
+              <strong>注册设置</strong>
+              <em>${isPhoneRegistration ? '手机号注册 · 复用 OAuth 手机接码' : `${state.emails.length} 个邮箱 · ${state.emails.filter((email) => email.status === 'error').length} 个失败`}</em>
             </span>
             <b>展开</b>
           </summary>
           <div class="settings-panel-body">
+          <div class="row compact">
+            <label class="field">
+              <span>注册方式</span>
+              <select id="registration-mode" class="select">
+                ${option('email', '邮箱注册', registrationMode)}
+                ${option('phone', '手机号注册', registrationMode)}
+              </select>
+            </label>
+          </div>
+          <div id="phone-registration-summary" class="subsection"${isPhoneRegistration ? '' : ' hidden'}>
+            <div class="card-head">
+              <div>
+                <h3>手机号注册</h3>
+                <p class="hint">注册取号、短信轮询和 OAuth 手机验证共用下面的 OAuth 手机接码配置。</p>
+              </div>
+            </div>
+            <div class="pool-summary">
+              OAuth 手机接码：${oauthPhone.enabled ? '启用' : '关闭'} · ${oauthPhone.sourceMode === 'api' ? `API 号码 ${oauthPhone.apiTargets.length} 个` : `平台报价 ${oauthPhone.selectedOffers.length} 个`}
+            </div>
+          </div>
+          <div id="email-pool-fields"${isPhoneRegistration ? ' hidden' : ''}>
           <div class="table-head">
             <div>
               <h3>邮箱池</h3>
@@ -131,6 +157,7 @@ async function render(): Promise<void> {
             </label>
           </div>
           </div>
+          </div>
         </details>
 
         <details class="settings-panel">
@@ -145,7 +172,7 @@ async function render(): Promise<void> {
           <div class="table-head">
             <div>
               <h3>接码池</h3>
-              <p class="hint">一般保留 3 个号码即可，API 链接会截断显示。</p>
+              <p class="hint">填写 号码----API 链接，一行一个；导入后会合并去重。</p>
             </div>
             <div class="table-actions">
               <button id="btn-clear-sms" class="button secondary small" type="button">清除全部</button>
@@ -154,6 +181,7 @@ async function render(): Promise<void> {
             </div>
           </div>
           <textarea id="raw-sms" class="raw-store" spellcheck="false">${escapeHtml(state.settings.rawSms)}</textarea>
+          <input id="sms-source-mode" type="hidden" value="api">
           <div id="sms-table" class="table-wrap sms-table-wrap"></div>
           <div class="row compact">
             <label class="field">
@@ -171,7 +199,7 @@ async function render(): Promise<void> {
           <summary class="settings-panel-summary">
             <span>
               <strong>提取设置</strong>
-              <em>${checkoutExtractMode === 'server' ? '服务器 API' : '本地提取'} · OAuth ${state.settings.oauthExtractMode === 'direct' ? '直接生成' : '邮箱接码提取'} · 手机接码 ${oauthPhone.enabled ? '启用' : '关闭'}</em>
+              <em>${checkoutExtractMode === 'server' ? '服务器 API' : '本地提取'} · OAuth ${effectiveOAuthExtractMode === 'direct' ? '直接生成' : '邮箱接码提取'} · 手机接码 ${oauthPhone.enabled ? '启用' : '关闭'}</em>
             </span>
             <b>展开</b>
           </summary>
@@ -189,8 +217,8 @@ async function render(): Promise<void> {
             <label class="field">
               <span>提取 OAuth 方式</span>
               <select id="oauth-extract-mode" class="select">
-                ${option('email', '邮箱接码提取', state.settings.oauthExtractMode)}
-                ${option('direct', '直接生成文件', state.settings.oauthExtractMode)}
+                ${option('email', '邮箱接码提取', effectiveOAuthExtractMode)}
+                ${option('direct', '直接生成文件', effectiveOAuthExtractMode)}
               </select>
             </label>
             <label class="field">
@@ -240,7 +268,7 @@ async function render(): Promise<void> {
             <div class="card-head">
               <div>
                 <h3>OAuth 手机接码</h3>
-                <p class="hint">独立于 PayPal 接码池，可选择接码平台或 API 接码池用于 OAuth 手机验证。</p>
+                <p class="hint">注册手机号和 OAuth 手机验证共用这套 OpenAI 手机接码配置。</p>
               </div>
               <button id="btn-save-oauth-phone" class="button secondary small" type="button">保存接码设置</button>
             </div>
@@ -277,8 +305,8 @@ async function render(): Promise<void> {
                 </select>
               </label>
               <label class="field">
-                <span>服务代码（OpenAI/ChatGPT 默认 dr）</span>
-                <input id="oauth-phone-service-code" class="input" value="${escapeAttr(oauthPhone.serviceCode)}" placeholder="dr" />
+                <span>服务代码 / 项目 ID（Fox SMS 默认 91）</span>
+                <input id="oauth-phone-service-code" class="input" value="${escapeAttr(oauthPhone.serviceCode)}" placeholder="dr / 91" />
               </label>
             </div>
             <div class="row compact oauth-provider-mode-panel">
@@ -324,7 +352,7 @@ async function render(): Promise<void> {
             <div class="table-head compact oauth-provider-mode-panel">
               <div>
                 <h3>可用报价</h3>
-                <p class="hint">自动去除单价为 0 或余量为 0 的报价，价格统一显示为美元；Tiger SMS 会从 ₽ 按默认汇率换算。</p>
+                <p class="hint">自动去除单价为 0 或余量为 0 的报价，价格统一显示为美元；Tiger SMS 从 ₽ 换算，Fox SMS 从 ¥ 换算。</p>
               </div>
               <div class="table-actions">
                 <button id="btn-refresh-oauth-phone-offers" class="button secondary small" type="button">刷新报价</button>
@@ -385,7 +413,7 @@ async function render(): Promise<void> {
               <textarea id="oauth-phone-raw-api-targets" class="raw-store oauth-api-raw-store" spellcheck="false">${escapeHtml(oauthPhone.rawApiTargets)}</textarea>
               <div id="oauth-phone-api-targets" class="table-wrap oauth-api-table-wrap">${renderOAuthPhoneApiTargetTable(oauthPhone.rawApiTargets, oauthPhone.apiTargets)}</div>
             </div>
-            <div id="oauth-phone-status" class="status">OAuth 手机接码配置独立保存。</div>
+            <div id="oauth-phone-status" class="status">OAuth 手机接码配置会同时用于手机号注册和 OAuth 手机验证。</div>
           </div>
 
           <div id="status" class="status">等待保存。</div>
@@ -441,13 +469,16 @@ async function render(): Promise<void> {
   const status = mustGet('status');
   const rawEmailsInput = mustGet('raw-emails') as HTMLTextAreaElement;
   const rawSmsInput = mustGet('raw-sms') as HTMLTextAreaElement;
+  const registrationModeSelect = mustGet('registration-mode') as HTMLSelectElement;
   const specifiedEmailSelect = mustGet('specified-email') as HTMLSelectElement;
   const checkoutExtractModeSelect = mustGet('checkout-extract-mode') as HTMLSelectElement;
+  const oauthExtractModeSelect = mustGet('oauth-extract-mode') as HTMLSelectElement;
 
   renderEmailTable();
   renderSmsTable();
   syncSpecifiedEmails(state.settings.specifiedEmailId);
   syncCheckoutOptionsVisibility();
+  syncRegistrationModeVisibility();
   setupStatusTooltips();
 
   const clearEmailsButton = mustGet('btn-clear-emails') as HTMLButtonElement;
@@ -527,6 +558,18 @@ async function render(): Promise<void> {
     flashButtonLabel(importSmsButton, '已打开');
   });
   checkoutExtractModeSelect.addEventListener('change', syncCheckoutOptionsVisibility);
+  registrationModeSelect.addEventListener('change', () => {
+    syncRegistrationModeVisibility();
+    renderEmailTable();
+    syncSpecifiedEmails(specifiedEmailSelect.value);
+    setInlineStatus(
+      status,
+      registrationModeSelect.value === 'phone'
+        ? '已切换为手机号注册，注册取号将复用 OAuth 手机接码配置。'
+        : '已切换为邮箱注册。',
+      'ok',
+    );
+  });
   wireGeneratedFileActions();
   wireOAuthPhoneActions(oauthPhone);
   mustGet('btn-close').addEventListener('click', () => window.close());
@@ -553,7 +596,13 @@ async function render(): Promise<void> {
     const restoreButton = setButtonPending(saveButton, '保存中...');
     try {
       const next = await saveCurrentSettings();
-      setInlineStatus(status, `已保存：${next.emails.length} 个邮箱，${next.smsTargets.length} 个接码。`, 'ok');
+      setInlineStatus(
+        status,
+        next.settings.registrationMode === 'phone'
+          ? `已保存：手机号注册，复用 OAuth 手机接码；支付接码 ${next.smsTargets.length} 个。`
+          : `已保存：${next.emails.length} 个邮箱，${next.smsTargets.length} 个接码。`,
+        'ok',
+      );
       window.setTimeout(() => void render(), 300);
     } catch (error) {
       setInlineStatus(status, error instanceof Error ? error.message : String(error), 'error');
@@ -565,21 +614,29 @@ async function render(): Promise<void> {
   function collectSettingsPatch(overrides: Partial<AutomationSettings> = {}): Partial<AutomationSettings> {
     const rawEmails = valueOf('raw-emails');
     const rawSms = valueOf('raw-sms');
-    const emailSelectionMode = valueOf('email-mode') === 'specified' ? 'specified' : 'next';
+    const registrationMode = valueOf('registration-mode') === 'phone' ? 'phone' : 'email';
+    const emailSelectionMode = registrationMode === 'phone'
+      ? 'next'
+      : valueOf('email-mode') === 'specified' ? 'specified' : 'next';
+    const smsSourceMode = PUBLIC_SMS_SOURCE_MODE;
     const smsSelectionMode = valueOf('sms-mode') === 'next' ? 'next' : 'random';
     const batchAccountLimit = Number(valueOf('batch-account-limit') || 1);
-    const specifiedEmailId = valueOf('specified-email');
+    const specifiedEmailId = registrationMode === 'phone' ? '' : valueOf('specified-email');
     const stopOnError = checkedOf('stop-on-error');
     const autoOpenCheckout = checkedOf('auto-open-checkout');
     const debugMode = checkedOf('debug-mode');
-    const oauthExtractMode = valueOf('oauth-extract-mode') === 'direct' ? 'direct' : 'email';
+    const oauthExtractMode = registrationMode === 'phone'
+      ? 'direct'
+      : valueOf('oauth-extract-mode') === 'direct' ? 'direct' : 'email';
     const checkoutExtractMode = valueOf('checkout-extract-mode') as CheckoutExtractMode;
 
     return {
+      registrationMode,
       rawEmails,
       rawSms,
       emailSelectionMode,
       specifiedEmailId,
+      smsSourceMode,
       smsSelectionMode,
       batchAccountLimit,
       stopOnError,
@@ -606,8 +663,12 @@ async function render(): Promise<void> {
         ...(patch.checkoutOptions || {}),
       },
     }, state);
-    if (preview.emailErrors.length || preview.smsErrors.length) {
-      throw new Error([...preview.emailErrors, ...preview.smsErrors].join('；'));
+    const blockingErrors = [
+      ...(patch.registrationMode === 'phone' ? [] : preview.emailErrors),
+      ...preview.smsErrors,
+    ];
+    if (blockingErrors.length) {
+      throw new Error(blockingErrors.join('；'));
     }
     const selectedStillExists = preview.emails.some((email) => email.id === patch.specifiedEmailId);
     const nextSpecifiedEmailId = patch.emailSelectionMode === 'specified' && selectedStillExists ? patch.specifiedEmailId || '' : '';
@@ -845,7 +906,8 @@ async function render(): Promise<void> {
   }
 
   function updateRawSms(value: string): void {
-    rawSmsInput.value = normalizeRawLines(value);
+    const normalized = normalizeRawLines(value);
+    rawSmsInput.value = normalized;
     renderSmsTable();
   }
 
@@ -854,10 +916,15 @@ async function render(): Promise<void> {
     const summaryHost = mustGet('email-summary');
     tableHost.textContent = '';
     summaryHost.textContent = '';
+    if (registrationModeSelect.value === 'phone') {
+      summaryHost.textContent = '手机号注册模式不使用邮箱池。';
+      return;
+    }
     const preview = parseAutomationSettings({
       ...state.settings,
       rawEmails: rawEmailsInput.value,
       rawSms: valueOf('raw-sms'),
+      smsSourceMode: PUBLIC_SMS_SOURCE_MODE,
     }, state);
     if (preview.emailErrors.length) {
       const errors = document.createElement('div');
@@ -978,6 +1045,7 @@ async function render(): Promise<void> {
       ...state.settings,
       rawEmails: rawEmailsInput.value,
       rawSms: rawSmsInput.value,
+      smsSourceMode: PUBLIC_SMS_SOURCE_MODE,
     }, state);
     if (preview.smsErrors.length) {
       const errors = document.createElement('div');
@@ -998,6 +1066,7 @@ async function render(): Promise<void> {
     table.innerHTML = `
       <thead>
         <tr>
+          <th>来源</th>
           <th>号码</th>
           <th>API 链接</th>
           <th>状态</th>
@@ -1010,8 +1079,9 @@ async function render(): Promise<void> {
       const statusInfo = smsStatusInfo(target, state.run.selectedSmsId);
       const row = document.createElement('tr');
       row.innerHTML = `
+        <td><span class="provider-badge ${target.source === 'foxsms' ? 'provider-badge-foxsms' : 'provider-badge-smsbower'}">${target.source === 'foxsms' ? 'Fox SMS' : 'API'}</span></td>
         <td><span class="email-text">${escapeHtml(target.phone)}</span></td>
-        <td><span class="credential-text api-text">${escapeHtml(shortUrlText(target.url))}</span></td>
+        <td><span class="credential-text api-text">${escapeHtml(smsTargetSourceDetail(target))}</span></td>
         <td><span class="status-pill" data-status="${escapeAttr(statusInfo.kind)}">${escapeHtml(statusInfo.label)}</span></td>
         <td>
           <div class="table-action-group">
@@ -1077,6 +1147,16 @@ async function render(): Promise<void> {
       item.textContent = email.email;
       item.selected = email.id === currentId;
       specifiedEmailSelect.append(item);
+    }
+  }
+
+  function syncRegistrationModeVisibility(): void {
+    const phoneMode = registrationModeSelect.value === 'phone';
+    mustGet('email-pool-fields').hidden = phoneMode;
+    mustGet('phone-registration-summary').hidden = !phoneMode;
+    oauthExtractModeSelect.disabled = phoneMode;
+    if (phoneMode) {
+      oauthExtractModeSelect.value = 'direct';
     }
   }
 
@@ -1146,6 +1226,9 @@ function providerBadgeClass(providerId: string): string {
   if (providerId === 'tigersms') {
     return 'provider-badge-tigersms';
   }
+  if (providerId === 'foxsms') {
+    return 'provider-badge-foxsms';
+  }
   return 'provider-badge-smsbower';
 }
 
@@ -1156,7 +1239,10 @@ function readSelectedOAuthPhoneOffers(): OAuthPhoneSelectedOffer[] {
 }
 
 function parseOAuthOfferDataset(dataset: DOMStringMap): OAuthPhoneSelectedOffer | null {
-  const providerId = dataset.providerId === 'herosms' || dataset.providerId === 'smspool' || dataset.providerId === 'tigersms'
+  const providerId = dataset.providerId === 'herosms' ||
+    dataset.providerId === 'smspool' ||
+    dataset.providerId === 'tigersms' ||
+    dataset.providerId === 'foxsms'
     ? dataset.providerId
     : 'smsbower';
   const countryId = String(dataset.countryId || '').trim();
@@ -1927,6 +2013,7 @@ async function buildAutomationDiagnosticReport(state: AutomationState): Promise<
   const smsDisabled = state.smsTargets.filter((target) => target.disabled).length;
   const currentEmail = state.emails.find((email) => email.id === state.run.selectedEmailId) || null;
   const currentSms = state.smsTargets.find((target) => target.id === state.run.selectedSmsId) || null;
+  const currentRegisterPhone = state.run.registerPhoneNumber || '';
   const latestError = state.steps.find((step) => step.status === 'error') || null;
   const lines: string[] = [];
 
@@ -1944,17 +2031,20 @@ async function buildAutomationDiagnosticReport(state: AutomationState): Promise<
   lines.push(`目标页面：${targetTab ? redactSensitiveText(String(targetTab.url || '')) : '未读取到目标标签页'}`);
   lines.push(`目标状态：${targetTab?.status || '未知'}`);
   lines.push(`当前邮箱：${currentEmail?.email || '未选择'}`);
+  lines.push(`当前注册手机号：${currentRegisterPhone || '未选择'}`);
   lines.push(`当前接码：${currentSms?.phone || '未选择'}`);
   lines.push(`订阅链接：${state.run.checkoutUrl ? redactSensitiveText(state.run.checkoutUrl) : '无'}`);
   lines.push('');
   lines.push('## 设置摘要');
-  lines.push(`邮箱选择：${state.settings.emailSelectionMode}${state.settings.specifiedEmailId ? ` / 指定 ${state.settings.specifiedEmailId}` : ''}`);
+  lines.push(`注册方式：${state.settings.registrationMode === 'phone' ? '手机号注册' : '邮箱注册'}`);
+  lines.push(`邮箱选择：${state.settings.registrationMode === 'phone' ? '手机号注册模式不使用邮箱池' : `${state.settings.emailSelectionMode}${state.settings.specifiedEmailId ? ` / 指定 ${state.settings.specifiedEmailId}` : ''}`}`);
+  lines.push('接码来源：API 链接');
   lines.push(`接码选择：${state.settings.smsSelectionMode}`);
   lines.push(`执行账号数：${state.settings.batchAccountLimit}`);
   lines.push(`失败停止：${state.settings.stopOnError ? '是' : '否'}`);
   lines.push(`自动打开订阅链接：${state.settings.autoOpenCheckout ? '是' : '否'}`);
   lines.push(`提取模式：${state.settings.checkoutExtractMode || 'local'}`);
-  lines.push(`OAuth 方式：${state.settings.oauthExtractMode}`);
+  lines.push(`OAuth 方式：${state.settings.registrationMode === 'phone' ? 'direct（手机号注册自动直接生成）' : state.settings.oauthExtractMode}`);
   lines.push(`邮箱池：总数 ${emailTotal} / 成功 ${emailSuccess} / 失败 ${emailError}`);
   lines.push(`接码池：总数 ${state.smsTargets.length} / 不可用 ${smsDisabled}`);
   const oauthPhoneMode = oauthPhone.sourceMode === 'api' ? 'API 接码池' : '接码平台接码';
@@ -1994,9 +2084,9 @@ async function buildAutomationDiagnosticReport(state: AutomationState): Promise<
   lines.push('');
   lines.push('## 接码池状态');
   state.smsTargets.forEach((target, index) => {
-    const api = redactSensitiveText(target.url);
+    const source = target.source === 'foxsms' ? `Fox SMS jpn/35 logId=${target.activationId || '-'}` : `API=${redactSensitiveText(target.url)}`;
     const disabled = target.disabled ? `不可用：${redactSensitiveText(target.disabledReason || '-')}` : '可用';
-    lines.push(`- ${index + 1}. ${target.phone}；${disabled}；次数=${target.useCount}；最后收码=${formatTime(target.lastCodeAt)}；API=${api}；消息=${redactSensitiveText(target.lastMessage || '-')}`);
+    lines.push(`- ${index + 1}. ${target.phone}；来源=${source}；${disabled}；次数=${target.useCount}；最后收码=${formatTime(target.lastCodeAt)}；消息=${redactSensitiveText(target.lastMessage || '-')}`);
   });
   lines.push('');
   lines.push('## 最近错误');
@@ -2190,6 +2280,14 @@ function smsStatusInfo(target: AutomationSmsTarget, selectedSmsId: string): { ki
     return { kind: 'idle', label: `已用 ${target.useCount} 次` };
   }
   return { kind: 'idle', label: '未使用' };
+}
+
+function smsTargetSourceDetail(target: AutomationSmsTarget): string {
+  if (target.source === 'foxsms') {
+    const logId = target.activationId ? ` · logId ${target.activationId}` : '';
+    return `日本 jpn · PayPal ${target.projectId || '35'}${logId}`;
+  }
+  return shortUrlText(target.url);
 }
 
 function shortUrlText(value: string): string {

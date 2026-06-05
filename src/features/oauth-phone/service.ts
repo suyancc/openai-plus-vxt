@@ -31,6 +31,13 @@ export interface OAuthPhoneRuntimeCandidate {
 
 export async function testOAuthPhoneProvider(providerId: OAuthPhoneProviderId): Promise<OAuthPhoneProviderTestResult> {
   const settings = await loadOAuthPhoneSettings();
+  return testOAuthPhoneProviderWithSettings(settings, providerId);
+}
+
+export async function testOAuthPhoneProviderWithSettings(
+  settings: OAuthPhoneSettings,
+  providerId: OAuthPhoneProviderId,
+): Promise<OAuthPhoneProviderTestResult> {
   const providerSettings = settings.providers.find((provider) => provider.id === providerId);
   if (!providerSettings) {
     return { providerId, ok: false, message: '接码平台配置不存在' };
@@ -41,6 +48,16 @@ export async function testOAuthPhoneProvider(providerId: OAuthPhoneProviderId): 
 
   try {
     const client = createOAuthPhoneProvider(providerId);
+    if (providerId === 'foxsms') {
+      const balance = await client.getBalance(providerSettings);
+      return {
+        providerId,
+        ok: true,
+        message: `${client.definition.label} API 可用，余额 ${formatBalance(balance)}；OpenAI 项目默认 91`,
+        balance,
+        countryCount: 1,
+      };
+    }
     const [balance, countries] = await Promise.all([
       client.getBalance(providerSettings),
       client.getCountries(providerSettings),
@@ -93,6 +110,14 @@ export async function fetchOAuthPhoneOfferMatrix(): Promise<{
   offers: OAuthPhonePricePreviewOffer[];
 }> {
   const settings = await loadOAuthPhoneSettings();
+  return fetchOAuthPhoneOfferMatrixFromSettings(settings);
+}
+
+export async function fetchOAuthPhoneOfferMatrixFromSettings(settings: OAuthPhoneSettings): Promise<{
+  ok: boolean;
+  message: string;
+  offers: OAuthPhonePricePreviewOffer[];
+}> {
   const providers = selectConfiguredProviders(settings);
   if (!providers.length) {
     return { ok: false, message: '没有可用接码平台，请启用平台并填写 API key', offers: [] };
@@ -218,11 +243,18 @@ export async function fetchOAuthPhonePricePreview(): Promise<{
 
 export async function selectOAuthPhoneOfferForRuntime(): Promise<OAuthPhoneRuntimeSelection> {
   const settings = await loadOAuthPhoneSettings();
+  return selectOAuthPhoneOfferForRuntimeFromSettings(settings, 'OAuth 手机接码');
+}
+
+export async function selectOAuthPhoneOfferForRuntimeFromSettings(
+  settings: OAuthPhoneSettings,
+  moduleLabel = 'OAuth 手机接码',
+): Promise<OAuthPhoneRuntimeSelection> {
   if (!settings.enabled) {
-    return { ok: false, message: 'OAuth 手机接码模块未启用', settings };
+    return { ok: false, message: `${moduleLabel}模块未启用`, settings };
   }
   if (!settings.serviceCode.trim()) {
-    return { ok: false, message: '请先设置 OAuth 手机接码服务代码', settings };
+    return { ok: false, message: `请先设置${moduleLabel}服务代码`, settings };
   }
   const providers = selectConfiguredProviders(settings);
   if (!providers.length) {
@@ -234,7 +266,7 @@ export async function selectOAuthPhoneOfferForRuntime(): Promise<OAuthPhoneRunti
     .filter((offer) => settings.maxPrice > 0 ? offer.cost <= settings.maxPrice : true)
     .filter((offer) => providers.some((provider) => provider.id === offer.providerId));
   if (!offers.length) {
-    return { ok: false, message: '没有已选择且符合价格范围的 OAuth 接码报价', settings };
+    return { ok: false, message: `没有已选择且符合价格范围的${moduleLabel}报价`, settings };
   }
   const candidates: OAuthPhoneRuntimeCandidate[] = [];
   for (const offer of offers) {
@@ -335,6 +367,11 @@ export function sortOffers<T extends Pick<OAuthPhonePriceOffer, 'providerId' | '
     }
     if (settings.providerMode === 'highest-stock') {
       return right.count - left.count || left.cost - right.cost;
+    }
+    const leftIsActive = left.providerId === settings.activeProviderId;
+    const rightIsActive = right.providerId === settings.activeProviderId;
+    if (leftIsActive !== rightIsActive) {
+      return leftIsActive ? -1 : 1;
     }
     return (priority.get(left.providerId) || 99) - (priority.get(right.providerId) || 99) ||
       left.cost - right.cost;
